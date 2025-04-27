@@ -25,8 +25,12 @@ def main():
     # Stop timing
     timer.stop()
 
-    # Output results in JSON-like format
-    solution = f'{optimal} {" ".join(["0 "+" ".join([str(r) for r in route]) + " 0" for route in routes])}'
+    with open(f"./sol/{filename}.sol", "w") as f:
+        f.write(f"{obj_value} {optimal}\n")
+        for route in routes:
+            f.write(f'{" ".join([str(r) for r in route])}\n')
+
+    solution = f'{optimal} {" ".join([" ".join([str(r) for r in route]) for route in routes])}'
     print(
         f'{{"Instance": "{filename}","Time": {timer.getElapsed():.2f}, "Result": {obj_value}, "Solution": "{solution}"}}'
     )

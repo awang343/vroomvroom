@@ -62,10 +62,8 @@ class VRPInstance:
     def calc_route_distance(self, route):
         total = 0
 
-        total += self.distances[0][route[0]]
         for i, j in zip(route[:-1], route[1:]):
             total += self.distances[i][j]
-        total += self.distances[route[-1]][0]
 
         return total
 
@@ -111,26 +109,22 @@ class VRPInstance:
 
                 new_demand = route_demands[i] + route_demands[j]
 
-                if new_demand <= self.vehicleCapacity:
-                    # Merge the routes
-                    for customer in new_route:
-                        routes[customer] = new_route
-                        route_demands[customer] = new_demand
+                for customer in new_route:
+                    routes[customer] = new_route
+                    route_demands[customer] = new_demand
 
         # List of routes formed
         vehicle_routes = set()
 
-        for route in routes.values():
-            vehicle_routes.add(tuple(route))
-        print(vehicle_routes)
-
-        return list(vehicle_routes)
+        return list(routes.values())[0]
 
     def solve(self):
         self.presolve()
 
         customer_alloc = self.allocator.solve()
+
         routes = [self.clark_wright_savings(route) for route in customer_alloc]
+        routes = [[0] + route + [0] for route in routes]
 
         # print("Routes:", routes)
 

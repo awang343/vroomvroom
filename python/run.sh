@@ -14,7 +14,6 @@ input=$1
 source p5_venv/bin/activate || exit 1
 
 install_loc=/home/alanxw/school/csci2951o/ubuntu-docker/CPLEX_Studio2211
-export CP_SOLVER_EXEC=${install_loc}/cpoptimizer/bin/x86-64_linux/cpoptimizer
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${install_loc}/cplex/bin/x86-64_linux/cplex
 export DOCPLEX_COS_LOCATION=${install_loc}
 
