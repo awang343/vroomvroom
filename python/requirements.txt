@@ -1,2 +1,4 @@
 docplex
 numpy
+deap
+scipy

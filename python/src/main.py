@@ -4,6 +4,9 @@ import os
 from timer import Timer
 from instance import VRPInstance
 
+from solver_genetics import GeneticSolver
+from solver_ipcw import IPCWSolver
+
 
 def main():
     if len(sys.argv) == 1:
@@ -20,7 +23,10 @@ def main():
 
     # Load VRP instance
     instance = VRPInstance(input_file)
-    obj_value, optimal, routes = instance.solve()
+    solver = GeneticSolver(instance)
+
+    obj_value, optimal, routes = solver.solve()
+    routes = [[0] + route + [0] for route in routes]
 
     # Stop timing
     timer.stop()
