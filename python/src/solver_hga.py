@@ -5,9 +5,6 @@ import numpy as np
 import copy
 import random
 
-creator.create("Fitness_Func", base.Fitness, weights=(-1.0,))
-creator.create("Individual", list, fitness=creator.Fitness_Func)
-
 """
 We will represent the solution in an n-vehicle problem
 as [[route1], [route2], [route3], ..., [routen]]
@@ -15,7 +12,7 @@ as [[route1], [route2], [route3], ..., [routen]]
 
 
 class HGASolver:
-
+    # {{{ __init__
     def __init__(
         self,
         inst,
@@ -26,54 +23,101 @@ class HGASolver:
         ri_granularity=0.4,
         feasibility_target=0.2,
     ):
-        self.tb = base.Toolbox()
         self.inst = inst
+        self.neighbors = self.inst.calc_neighbors(ri_granularity)
+        self.all_customers = tuple(c for c in range(1, self.inst.numCustomers))
 
         self.population_size = population_size
         self.generation_size = generation_size
 
         self.education_prob = education_prob
         self.repair_prob = repair_prob
-        self.ri_granularity = ri_granularity
 
-        self.feasibility_target = feasiblity_target
+        self.feasibility_target = feasibility_target
+        self.capacity_penalty = self.calc_capacity_penalty()
 
-        self._register()
+        self.feasible_population = []
+        self.infeasible_population = []
 
-    def _register(self):
-        self.tb.register("indexes", self.chromo_create)
-        self.tb.register(
-            "individual", tools.initIterate, creator.Individual, self.tb.indexes
-        )
-        self.tb.register("population", tools.initRepeat, list, self.tb.individual)
+        self.initialize_populations()
 
-        self.tb.register("evaluate", self.chromo_eval)
+    def calc_capacity_penalty(self):
+        total_dist = 0
+        for i in range(1, self.inst.numCustomers):
+            for j in range(i, self.inst.numCustomers):
+                total_dist += self.inst.distances[i][j]
+        num_pairs = (len(self.all_customers) - 1) * (len(self.all_customers) - 2) / 2
 
-        self.tb.register("select", tools.selTournament)
-        self.tb.register("mate", self.crossover)
-        self.tb.register("mutate", self.mutation)
+        avg_dist = total_dist / num_pairs
+        avg_demand = sum(self.inst.demandOfCustomer) / len(self.all_customers)
+        return avg_dist / avg_demand
+    
+    def initialize_populations(self):
+        for it in range(self.population_size * 4):
+            self.generate_solution()
 
+    # }}}
 
-    def pix_crossover(self, parent1, parent2):
+    def generate_solution(self):
+        """
+        Randomly generate a solution
+        """
+        customers = np.array(self.all_customers)
+        np.random.shuffle(customers)
+
+        split_points = np.sort(np.random.randint(0, len(customers) + 1, size=k - 1))
+
+        # Add start and end
+        split_points = np.concatenate(([0], split_points, [len(customers)]))
+
+        # Split into sublists
+        sublists = [arr[split_points[i]:split_points[i+1]].tolist() for i in range(k)]
+
+        return sublists
+
+    # {{{ evaluate_solution
+    def evaluate_solution(self, routes):
+        """
+        Gives the evaluated fitness of a solution
+        """
+        feasible = True
+
+        cost = 0
+        for route in routes:
+            overallocation = self.inst.calc_overallocation(route)
+            cost += self.inst.calc_route_distance(route) + overallocation
+
+            if overallocation > 0:
+                feasible = False
+
+        return cost, feasible
+
+    # }}}
+
+    # {{{ crossover_solution
+    def crossover_solution(self, parent1, parent2):
         """
         Performs PIX crossover for VRP with a single depot and multiple vehicles.
-        
+
         Each customer is visited exactly once. Routes are lists of customer IDs.
         parent1, parent2: list of routes (list of lists)
         num_vehicles: number of vehicles (routes per individual)
-        
+
         Returns a new child individual (list of routes).
         """
-        assert len(parent1) == num_vehicles
-        assert len(parent2) == num_vehicles
+        # assert len(parent1) == self.inst.numVehicles
+        # assert len(parent2) == self.inst.numVehicles
 
-        child = [[] for _ in range(num_vehicles)]
+        child = [[] for _ in range(self.inst.numVehicles)]
         visited = set()
-        all_customers = set(c for route in parent1 for c in route)
+        customers = set(self.all_customers)
 
         # Step 0: Split vehicles into Λ1, Λ2, Λmix
-        n1, n2 = sorted(random.sample(range(0, num_vehicles + 1), 2))
-        idxs = list(range(num_vehicles))
+        n1 = random.randint(0, self.inst.numVehicles)
+        n2 = random.randint(0, self.inst.numVehicles)
+        n1, n2 = sorted((n1, n2))
+
+        idxs = list(range(self.inst.numVehicles))
         random.shuffle(idxs)
 
         lambda1 = idxs[:n1]
@@ -92,7 +136,11 @@ class HGASolver:
             route = parent1[k]
             if not route:
                 continue
-            a, b = sorted(random.sample(range(len(route)), 2)) if len(route) >= 2 else (0, len(route))
+            a, b = (
+                sorted(random.sample(range(len(route)), 2))
+                if len(route) >= 2
+                else (0, len(route))
+            )
             for cust in route[a:b]:
                 if cust not in visited:
                     child[k].append(cust)
@@ -106,189 +154,233 @@ class HGASolver:
                     visited.add(cust)
 
         # Step 3: Repair phase — insert missing customers
-        unvisited = all_customers - visited
+        unvisited = customers - visited
         for cust in unvisited:
             # Choose the route with minimal insertion cost (dummy: smallest route)
-            best_route_idx = min(range(num_vehicles), key=lambda k: len(child[k]))
+            best_route_idx = min(
+                range(self.inst.numVehicles), key=lambda k: len(child[k])
+            )
             # Insert at best position (simplified: at end)
             child[best_route_idx].append(cust)
             visited.add(cust)
 
         return child
 
-    def chromo_create(self):
-        # Creates an individual randomly
-        schedule = copy.deepcopy(self.customers)
-        vehicle = list(np.random.randint(self.inst.numVehicles, size=(len(schedule))))
-        np.random.shuffle(schedule)
-        chromo = [schedule, vehicle]
-        return chromo
+    # }}}
 
-    def chromo_eval(self, _chromo):
-        route_set = [[] for _ in range(self.inst.numVehicles)]
-        for s, v in zip(_chromo[0], _chromo[1]):
-            route_set[v].append(s)
+    # {{{ educate_solution
+    def educate_solution(self, routes):
+        """
+        Perform route improvement using the 9 move operators
+        """
 
-        dist = 0
-        penalty = 0
-        for route in route_set:
-            dist += self.calc_route_cost(route)
-            penalty += self.capacity_penalty * max(
-                0,
-                sum(self.inst.demandOfCustomer[i] for i in route)
-                - self.inst.vehicleCapacity,
+        improved_routes = [r.copy() for r in routes]
+        improved_cost = self.evaluate_solution(improved_routes)
+
+        improved = True
+        while improved:
+            improved = False
+
+            # Randomize the order of route and node processing
+            route_indices = np.random.permutation(len(improved_routes))
+
+            for r_idx in route_indices:
+                route = improved_routes[r_idx]
+                if not route:
+                    continue
+
+                # Randomize node processing order
+                node_indices = np.random.permutation(len(route))
+
+                for u_pos in node_indices:
+                    u = route[u_pos]
+                    neighbors = self.neighbors[u]
+
+                    # Shuffle neighbors for random processing
+                    np.random.shuffle(neighbors)
+
+                    for v in neighbors:
+                        # Find which route contains v
+                        v_route_idx, v_pos = self.find_node_in_routes(
+                            improved_routes, v
+                        )
+                        v_route = improved_routes[v_route_idx]
+
+                        # Try all 9 moves
+                        for move in range(1, 10):
+                            new_routes = self.apply_move(
+                                improved_routes, r_idx, u_pos, v_route_idx, v_pos, move
+                            )
+
+                            if new_routes is None:
+                                continue
+
+                            new_cost = self.evaluate_solution(new_routes)
+
+                            if new_cost < improved_cost:
+                                improved_routes = new_routes
+                                improved_cost = new_cost
+                                print(improved_routes, improved_cost)
+                                improved = True
+                                break
+
+                        if improved:
+                            break
+
+                    if improved:
+                        break
+
+                if improved:
+                    break
+
+        return improved_routes
+
+    def find_node_in_routes(self, routes, node):
+        """Find which route contains a node and its position"""
+        for r_idx, route in enumerate(routes):
+            if node in route:
+                return r_idx, route.index(node)
+        raise Exception(f"Node {node} not found in routes {routes}")
+
+    # {{{ apply_move
+    def apply_move(self, routes, r1_idx, u_pos, r2_idx, v_pos, move_type):
+        """
+        Apply one of the 9 move operators to the routes.
+        """
+        new_routes = [r.copy() for r in routes]
+        route_u = new_routes[r1_idx]
+        route_v = new_routes[r2_idx]
+        u = route_u[u_pos]
+        v = route_v[v_pos]
+
+        # M1: Remove u and place it after v {{{
+        if move_type == 1:
+            route_u.pop(u_pos)
+            insert_pos = v_pos if r1_idx == r2_idx and u_pos < v_pos else v_pos + 1
+            route_v.insert(insert_pos, u)
+        # }}}
+        # M2/M3: Remove u and x (next node) and place them after v (both orders) {{{
+        elif move_type == 2 or move_type == 3:
+            if u_pos + 1 >= len(route_u):
+                return None
+
+            x = route_u[u_pos + 1]
+            route_u.pop(u_pos + 1)
+            route_u.pop(u_pos)
+
+            insert_pos = v_pos - 1 if r1_idx == r2_idx and u_pos < v_pos else v_pos + 1
+
+            route_v.insert(insert_pos, x if move_type == 2 else u)
+            route_v.insert(insert_pos + 1, u if move_type == 2 else x)
+        # }}}
+        # M4: Swap u and v{{{
+        elif move_type == 4:
+            route_u[u_pos], route_v[v_pos] = v, u
+        # }}}
+        # M5: Swap u and x (next node) with v{{{
+        elif move_type == 5:
+            if u_pos + 1 >= len(route_u):
+                return None
+
+            x = route_u[u_pos + 1]
+
+            if x == v:
+                return None
+
+            route_u[u_pos], route_v[v_pos] = v, u
+            route_u.pop(u_pos + 1)
+
+            insert_pos = v_pos if r1_idx == r2_idx and u_pos < v_pos else v_pos + 1
+            route_v.insert(insert_pos, x)
+        # }}}
+        # M6: Swap u and x (next node) with v and y (next node){{{
+        elif move_type == 6:
+            if (
+                u_pos + 1 >= len(route_u)
+                or v_pos + 1 >= len(route_v)
+                or u_pos + 1 == v_pos
+                or v_pos + 1 == u_pos
+            ):
+                return None
+
+            x = route_u[u_pos + 1]
+            y = route_v[v_pos + 1]
+
+            route_u[u_pos], route_v[v_pos] = v, u
+            route_u[u_pos + 1], route_v[v_pos + 1] = y, x
+        # }}}
+        # M7: 2-opt intra-route move (replace (u,x) and (v,y) with (u,v) and (x,y)){{{
+        elif move_type == 7 and r1_idx == r2_idx:
+            if u_pos + 1 >= len(route_u) or v_pos + 1 >= len(route_u):
+                return None
+
+            # Ensure u comes before v in the route
+            if u_pos >= v_pos:
+                return None
+
+            # Perform 2-opt swap
+            new_route = (
+                route_u[: u_pos + 1] + route_u[v_pos:u_pos:-1] + route_u[v_pos + 1 :]
             )
+            new_routes[r1_idx] = new_route
+        # }}}
+        # {{{ M8: 2-opt inter-route move (replace (u,x) and (v,y) with (u,v) and (x,y))
+        elif move_type == 8 and r1_idx != r2_idx:
+            if u_pos + 1 >= len(route_u) or v_pos + 1 >= len(route_v):
+                return None
 
-        return dist + penalty, penalty > 0
+            # Split routes after u and v
+            part1 = route_u[: u_pos + 1]
+            part2 = route_u[u_pos + 1 :]
+            part3 = route_v[: v_pos + 1]
+            part4 = route_v[v_pos + 1 :]
 
-    def get_route(self, _chromo):
-        route_set = [[] for _ in range(self.inst.numVehicles)]
-        for s, v in zip(_chromo[0], _chromo[1]):
-            route_set[v].append(s)
-        return route_set
+            # Recombine
+            new_route1 = part1 + part3[::-1]
+            new_route2 = part2[::-1] + part4
 
-    def calc_route_cost(self, _route):
-        if not _route:
-            return 0
-        dist = self.inst.distances[_route[-1], 0] + self.inst.distances[0, _route[0]]
+            new_routes[r1_idx] = new_route1
+            new_routes[r2_idx] = new_route2
+        # }}}
+        # M9: 2-opt inter-route move (replace (u,x) and (v,y) with (u,y) and (x,v)){{{
+        elif move_type == 9 and r1_idx != r2_idx:
+            if u_pos + 1 >= len(route_u) or v_pos + 1 >= len(route_v):
+                return None
 
-        for p in range(len(_route) - 1):
-            _i = _route[p]
-            _j = _route[p + 1]
-            dist += self.inst.distances[_i][_j]
-        return dist
+            # Split routes after u and v
+            part1 = route_u[: u_pos + 1]
+            part2 = route_u[u_pos + 1 :]
+            part3 = route_v[: v_pos + 1]
+            part4 = route_v[v_pos + 1 :]
 
-    def crossover(self, _chromo1, _chromo2):
-        cuts = self.get_chromo_cut()
-        self.partial_crossover(_chromo1[0], _chromo2[0], cuts)
+            # Recombine
+            new_route1 = part1 + part4
+            new_route2 = part2 + part3
 
-        cuts1 = self.get_chromo_cut()
-        cuts2 = self.get_chromo_cut(cuts1[2])
-
-        self.swap_genes(_chromo1[1], _chromo2[1], cuts1, cuts2)
-
-    def partial_crossover(self, _chromo1, _chromo2, cuts):
-        size = len(_chromo1)
-        p1, p2 = [0] * size, [0] * size
-
-        for i in range(size):
-            p1[_chromo1[i] - 1] = i
-            p2[_chromo2[i] - 1] = i
-
-        for i in range(cuts[0], cuts[1]):
-            temp1 = _chromo1[i] - 1
-            temp2 = _chromo2[i] - 1
-
-            _chromo1[i], _chromo1[p1[temp2]] = temp2 + 1, temp1 + 1
-            _chromo2[i], _chromo2[p2[temp1]] = temp1 + 1, temp2 + 1
-
-            p1[temp1], p1[temp2] = p1[temp2], p1[temp1]
-            p2[temp1], p2[temp2] = p2[temp2], p2[temp1]
-
-    def get_chromo_cut(self, cut_range=None, mutation=False):
-        if mutation:
-            randrange = self.inst.numCustomers - 1
+            new_routes[r1_idx] = new_route1
+            new_routes[r2_idx] = new_route2
+        # }}}
         else:
-            randrange = self.inst.numCustomers
+            return None
 
-        if cut_range is None:
-            cut1 = random.randrange(randrange)
-            cut2 = random.randrange(randrange)
-            if cut1 > cut2:
-                tmp = cut2
-                cut2 = cut1
-                cut1 = tmp
-            cut_range = cut2 - cut1
-        else:
-            cut1 = random.randrange(self.inst.numCustomers - cut_range)
-            cut2 = cut1 + cut_range
-        return cut1, cut2, cut_range
+        return new_routes
 
-    def swap_genes(self, chrom1, chrom2, cuts1, cuts2):
-        tmp = chrom1[cuts1[0] : cuts1[1]]
-        chrom1[cuts1[0] : cuts1[1]] = chrom2[cuts2[0] : cuts2[1]]
-        chrom2[cuts2[0] : cuts2[1]] = tmp
+    # }}}
 
-    def mutation(self, _chromo):
-        if np.random.rand() < 0.5:
-            self.swap_gene(_chromo)
-        else:
-            self.shuffle_gene(_chromo)
+    # }}}
 
-    def swap_gene(self, _chromo):
-        cuts = self.get_chromo_cut(mutation=True)
+    def cull_population():
+        """
+        Culls population down to mu individuals from mu+lambda
+        """
 
-        if np.random.rand() < 0.5:
-            _chromo[0][cuts[0]], _chromo[0][cuts[1]] = (
-                _chromo[0][cuts[1]],
-                _chromo[0][cuts[0]],
-            )
-        else:
-            _chromo[1][cuts[0]], _chromo[1][cuts[1]] = (
-                _chromo[1][cuts[1]],
-                _chromo[1][cuts[0]],
-            )
-
-    def shuffle_gene(self, _chromo):
-        cuts = self.get_chromo_cut(mutation=True)
-
-        if np.random.rand() < 0.5:
-            to_mix = _chromo[0][cuts[0] : cuts[1]]
-            np.random.shuffle(to_mix)
-            _chromo[0][cuts[0] : cuts[1]] = to_mix
-        else:
-            to_mix = _chromo[1][cuts[0] : cuts[1]]
-            np.random.shuffle(to_mix)
-            _chromo[1][cuts[0] : cuts[1]] = to_mix
+    def nuke_population():
+        """
+        Resets all but mu/3 individuals
+        """
 
     def solve(self):
-        population = self.tb.population(n=self.population_size)
-        fitness_set = list(self.tb.map(self.tb.evaluate, population))
-
-        for ind, fit in zip(population, fitness_set):
-            ind.fitness.values = (fit[0],)
-
-        best_fit_list = []
-        best_sol_list = []
-
-        best_fit = np.inf
-
-        for gen in range(0, self.num_generations):
-            if gen % 100 == 0:
-                print(f"Generation: {gen:4} | Fitness: {best_fit:.2f}")
-
-            offspring = self.tb.select(population, len(population), tournsize=3)
-            offspring = list(map(self.tb.clone, offspring))
-
-            for child1, child2 in zip(offspring[0::2], offspring[1::2]):
-                if np.random.random() < self.prob_crossover:
-                    self.tb.mate(child1, child2)
-                    del child1.fitness.values
-                    del child2.fitness.values
-
-            for chromo in offspring:
-                if np.random.random() < self.prob_mutation:
-                    self.tb.mutate(chromo)
-                    del chromo.fitness.values
-
-            fitness_set = map(self.tb.evaluate, offspring)
-            feasible_offspring = []
-            for ind, fit in zip(offspring, fitness_set):
-                ind.fitness.values = (fit[0],)
-                if not fit[1] or True:
-                    feasible_offspring.append(ind)
-
-            population[:] = offspring
-
-            if len(feasible_offspring) > 0:
-                curr_best_sol = tools.selBest(feasible_offspring, 1)[0]
-                curr_best_fit = curr_best_sol.fitness.values[0]
-
-                if curr_best_fit < best_fit:
-                    best_sol = curr_best_sol
-                    best_fit = curr_best_fit
-
-                best_fit_list.append(best_fit)
-                best_sol_list.append(best_sol)
-
-        return curr_best_fit, 0, self.get_route(best_sol)
+        # print(self.pix_crossover([[1, 4], [2, 3], [], []], [[1], [2], [3], [4]]))
+        self.educate_solution([[1, 4], [2, 3], [], []])
+        # print(self.inst.calc_neighbors(0.4))
+        return 1, 1, [[1], [2], [3], [4]]

@@ -1,6 +1,7 @@
 import numpy as np
 import random
 
+
 class VRPInstance:
     # {{{ Initializer
 
@@ -43,7 +44,6 @@ class VRPInstance:
             exit(-1)
 
         self.calc_distance_matrix()
-    # }}}
 
     def calc_distance_matrix(self):
         x_coords = np.array(self.xCoordOfCustomer)
@@ -54,11 +54,58 @@ class VRPInstance:
 
         self.distances = np.sqrt(dx**2 + dy**2)
 
+    # }}}
+
     def calc_route_distance(self, route):
+        """
+        Calculates distance of a customer route
+        Assumes that input does not include depot
+        """
+        if not route:
+            return 0
+
         total = 0
 
+        total += self.distances[0][route[0]]
         for i, j in zip(route[:-1], route[1:]):
             total += self.distances[i][j]
+        total += self.distances[route[-1]][0]
 
         return total
 
+    def calc_overallocation(self, route):
+        """
+        Calculates the overallocation to a given route
+        based on given vehicle capacities
+        """
+        return max(
+            0, sum(self.demandOfCustomer[c] for c in route) - self.vehicleCapacity
+        )
+
+    def calc_feasible(self, routes):
+        return all(
+            sum(self.demandOfCustomer[c] for c in route) <= self.vehicleCapacity
+            for route in routes
+        )
+
+    def calc_neighbors(self, h):
+        """
+        Returns a dictionary mapping each customer
+        to the hn closest neighbors
+        """
+
+        n = self.numCustomers
+        k = int(h * n)
+        neighbor_dict = {}
+
+        for i in range(1, n):
+            # Get the distances from node i to all others
+            distances = self.distances[i][1:]
+
+            # Get the indices of the k+1 smallest distances (including self at index i)
+            nearest = np.argsort(distances)[: k + 1] + 1
+            nearest = [int(j) for j in nearest if j != i][:k]
+
+            neighbor_dict[i] = nearest
+
+        return neighbor_dict

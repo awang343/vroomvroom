@@ -5,6 +5,7 @@ from timer import Timer
 from instance import VRPInstance
 
 from solver_genetics import GeneticSolver
+from solver_hga import HGASolver
 from solver_ipcw import IPCWSolver
 
 
@@ -15,7 +16,6 @@ def main():
 
     input_file = sys.argv[1]
     filename = os.path.basename(input_file)
-    # print(f"Instance: {input_file}")
 
     # Start timing the process
     timer = Timer()
@@ -23,7 +23,7 @@ def main():
 
     # Load VRP instance
     instance = VRPInstance(input_file)
-    solver = GeneticSolver(instance)
+    solver = HGASolver(instance)
 
     obj_value, optimal, routes = solver.solve()
     routes = [[0] + route + [0] for route in routes]
