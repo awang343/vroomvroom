@@ -368,16 +368,99 @@ class HGASolver:
     # }}}
 
     # }}}
+    
+    import random
 
-    def cull_population():
+    def select_parents(population, distance_matrix, elite_bias=0.7):
+        """
+        Selects two parents using binary tournament selection with elitism bias.
+        
+        Args:
+            population: List of solutions (each solution is a list of routes)
+            distance_matrix: 2D list of distances between nodes
+            elite_bias: Probability to select the fitter candidate in a tournament
+        
+        Returns:
+            Two selected parent solutions
+        """
+        def evaluate(solution):
+            """Helper: Calculate total distance of a solution"""
+            total = 0
+            for route in solution:
+                if not route:
+                    continue
+                total += distance_matrix[0][route[0]]  # Depot to first
+                for i in range(len(route)-1):
+                    total += distance_matrix[route[i]][route[i+1]]
+                total += distance_matrix[route[-1]][0]  # Last to depot
+            return total
+
+        def run_tournament():
+            """Run a single binary tournament"""
+            candidates = random.sample(population, 2)
+            cost1, cost2 = evaluate(candidates[0]), evaluate(candidates[1])
+            
+            # Select fitter candidate with elite_bias probability
+            if cost1 < cost2:
+                return candidates[0] if random.random() < elite_bias else candidates[1]
+            else:
+                return candidates[1] if random.random() < elite_bias else candidates[0]
+
+        # Select two parents via independent tournaments
+        parent1 = run_tournament()
+        parent2 = run_tournament()
+        
+        return parent1, parent2
+
+    def cull_population(self):
         """
         Culls population down to mu individuals from mu+lambda
         """
+        new_feasible_population = []
+        new_infeasible_population = []
+        
+        if len(self.feasible_population) > self.population_size + self.generation_size:
+            for individual in self.feasible_population:
+                if self.feasible_queue_miu[0][0] <= individual[0]:
+                    new_feasible_population.append(individual[0])
+        else:
+            new_feasible_population = self.feasible_population
+                
+        if len(self.feasible_population) > self.population_size + self.generation_size:
+            for indvidual in self.infeasible_population:
+                if self.infeasible_queue_miu[0][0] <= individual[0]:
+                    new_feasible_population.append(individual[0])
+        else:
+            new_infeasible_population = self.infeasible_population
+        
+        # Remove up to lambda clones with worst biased fitness
+        # for ind in subpop:
+        #     ind['biased_fitness'] = self.calc_biased_fitness(ind)
+        return (new_feasible_population, new_infeasible_population)
+
 
     def nuke_population():
         """
         Resets all but mu/3 individuals
         """
+        new_feasible_population = []
+        new_infeasible_population = []
+        
+        
+        for individual in self.feasible_population:
+            if self.feasible_queue_miu_3[0][0] <= individual[0]:
+                new_feasible_population.append(individual[0])
+        
+        
+        for indvidual in self.infeasible_population:
+            if self.infeasible_queue_miu_3[0][0] <= individual[0]:
+                new_feasible_population.append(individual[0])
+        
+        
+        #TODO: Repopulate with random individuals
+        return (new_feasible_population, new_infeasible_population)
+        
+        
 
     def solve(self):
         # print(self.pix_crossover([[1, 4], [2, 3], [], []], [[1], [2], [3], [4]]))
