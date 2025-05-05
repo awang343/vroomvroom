@@ -3,3 +3,4 @@ numpy
 deap
 scipy
 py-spy
+hygese
