@@ -547,7 +547,7 @@ class HGASolver:
 
         def run_tournament():
             """Run a single binary tournament"""
-            candidates = random.sample(population, 2)
+            candidates = random.sample(self.feasible_population.extend(self.infeasible_population), 2)
             cost1, cost2 = evaluate(candidates[0]), evaluate(candidates[1])
 
             # Select fitter candidate with elite_bias probability
