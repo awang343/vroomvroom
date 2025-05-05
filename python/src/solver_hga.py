@@ -13,7 +13,7 @@ class HGASolver:
     def __init__(
         self,
         inst,
-        population_size=1,
+        population_size=25,
         generation_size=40,
         education_prob=1.0,
         repair_prob=0.5,
@@ -170,15 +170,15 @@ class HGASolver:
         best_routes = [r.copy() for r in routes]
         best_dists = [self.inst.calc_route_distance(route) for route in best_routes]
         best_alloc = [self.inst.calc_allocation(route) for route in best_routes]
-        best_cost = sum(best_dists) + sum(best_allocations) * self.capacity_penalty
+        best_cost = sum(best_dists) + sum(best_alloc) * self.capacity_penalty
 
-        change = None
-        while change < 0 or change is None:
+        cost_change = None
+        while cost_change is None or cost_change < 0:
             # Randomize the order of route and node processing
-            route_indices = np.random.permutation(len(improved_routes))
+            route_indices = np.random.permutation(len(best_routes))
 
             for route_idx in route_indices:
-                route = improved_routes[route_idx]
+                route = best_routes[route_idx]
                 if not route:
                     continue
 
@@ -200,7 +200,7 @@ class HGASolver:
                         v_route = best_routes[v_route_idx]
 
                         # Try all 9 moves
-                        for move in np.random.permutation(10):
+                        for move in np.random.permutation(9)+1:
                             (
                                 new_route,
                                 new_v_route,
@@ -210,14 +210,15 @@ class HGASolver:
                             ) = self.apply_move(
                                 route,
                                 v_route,
-                                alloc,
-                                v_alloc,
+                                best_alloc[route_idx],
+                                best_alloc[v_route_idx],
                                 u_pos,
                                 v_pos,
                                 move,
                             )
 
                             if cost_change < 0:
+                                print(move, cost_change)
                                 best_routes[route_idx] = new_route
                                 best_routes[v_route_idx] = new_v_route
                                 best_alloc[route_idx] = new_alloc
@@ -282,11 +283,13 @@ class HGASolver:
 
         # M1: Remove u and place it after v {{{
         if move_type == 1:
+            print(route_u, route_v)
             route_u.pop(u_pos)
             insert_pos = v_pos if same_route and u_pos < v_pos else v_pos + 1
             route_v.insert(insert_pos, u)
             new_alloc = alloc - demand_u
             new_v_alloc = v_alloc + demand_u
+            print(route_u, route_v)
 
             cost_change += (
                 self.inst.distances[a][x]
@@ -296,6 +299,10 @@ class HGASolver:
                 + self.inst.distances[u][y]
                 - self.inst.distances[v][y]
             )
+
+            print(self.inst.distances)
+            print(cost_change)
+            exit(0)
 
         # }}}
         # M2/M3: Remove u and x and place them after v (both orders) {{{
@@ -355,11 +362,11 @@ class HGASolver:
 
             cost_change += (
                 self.inst.distances[a][v]
-                + self.inst.distances[v][x]
-                - self.inst.distances[a][u]
-                - self.inst.distances[u][x]
+                + self.inst.distances[v][w]
                 + self.inst.distances[b][u]
-                + self.inst.distances[u][y]
+                + self.inst.distances[x][y]
+                - self.inst.distances[a][u]
+                - self.inst.distances[x][w]
                 - self.inst.distances[b][v]
                 - self.inst.distances[v][y]
             )
@@ -395,6 +402,13 @@ class HGASolver:
                 route_u[: u_pos + 1] + route_u[v_pos:u_pos:-1] + route_u[v_pos + 1 :]
             )
 
+            cost_change += (
+                self.inst.distances[u][v]
+                + self.inst.distances[x][y]
+                - self.inst.distances[u][x]
+                - self.inst.distances[v][y]
+            )
+
             return route_u, route_v, alloc, v_alloc, cost_change
         # }}}
         # {{{ M8: 2-opt inter-route move type 1
@@ -415,6 +429,13 @@ class HGASolver:
             new_alloc = self.inst.calc_allocation(route_u)
             new_v_alloc = self.inst.calc_allocation(route_v)
 
+            cost_change += (
+                self.inst.distances[u][v]
+                + self.inst.distances[x][y]
+                - self.inst.distances[u][x]
+                - self.inst.distances[v][y]
+            )
+
             return route_u, route_v, new_alloc, new_v_alloc, cost_change
         # }}}
         # M9: 2-opt inter-route move type 2 {{{
@@ -430,10 +451,17 @@ class HGASolver:
 
             # Recombine
             route_u = part1 + part4
-            route_v = part2 + part3
+            route_v = part3 + part2
 
             new_alloc = self.inst.calc_allocation(route_u)
             new_v_alloc = self.inst.calc_allocation(route_v)
+
+            cost_change += (
+                self.inst.distances[u][y]
+                + self.inst.distances[v][x]
+                - self.inst.distances[u][x]
+                - self.inst.distances[v][y]
+            )
 
             return route_u, route_v, new_alloc, new_v_alloc, cost_change
         # }}}
@@ -443,8 +471,8 @@ class HGASolver:
         cost_change += (
             max(new_alloc, 0)
             - max(alloc, 0)
-            + max(new_alloc_v, 0)
-            - max(alloc_v, 0)
+            + max(new_v_alloc, 0)
+            - max(v_alloc, 0)
         ) * self.capacity_penalty
 
         return route_u, route_v, new_alloc, new_v_alloc, cost_change
