@@ -1,6 +1,10 @@
 import numpy as np
 import copy
 import random
+import heapq
+
+# random.seed(10)
+# np.random.seed(10)
 
 """
 We will represent the solution in an n-vehicle problem
@@ -31,12 +35,19 @@ class HGASolver:
         self.repair_prob = repair_prob
 
         self.feasibility_target = feasibility_target
-        self.capacity_penalty = self.calc_capacity_penalty()
+        self.capacity_penalty = self.calc_capacity_penalty() * 3
 
         self.feasible_population = []
         self.infeasible_population = []
+        heapq.heapify(self.feasible_population)
+        heapq.heapify(self.infeasible_population)
 
-        self.generate_solution()
+        self.feasible_elites = []
+        self.infeasible_elites = []
+        heapq.heapify(self.feasible_elites)
+        heapq.heapify(self.infeasible_elites)
+
+        self.repopulate()
 
     def calc_capacity_penalty(self):
         total_dist = 0
@@ -51,20 +62,9 @@ class HGASolver:
 
     def repopulate(self):
         for it in range(self.population_size * 4):
-            solution = self.generate_solution()
             print("Iteration:", it)
-
-            feasible = all(
-                self.inst.calc_allocation(route) <= self.inst.vehicleCapacity
-                for route in solution
-            )
-
-            if feasible:
-                self.feasible_population.append(solution)
-            else:
-                self.infeasible_population.append(solution)
-
-            print(len(self.feasible_population), len(self.infeasible_population))
+            self.generate_solution()
+        print(len(self.feasible_population), len(self.infeasible_population))
 
     # }}}
 
@@ -77,13 +77,35 @@ class HGASolver:
         k = self.inst.numVehicles
 
         np.random.shuffle(customers)
-        split_points = np.sort(np.random.randint(0, len(customers) + 1, size=k - 1))
+        split_points = np.sort(
+            np.random.choice(range(1, len(customers)), size=k - 1, replace=False)
+        )
         split_points = np.concatenate(([0], split_points, [len(customers)]))
         solution = [
             customers[split_points[i] : split_points[i + 1]].tolist() for i in range(k)
         ]
 
-        return self.educate_solution(solution)
+
+        original_penalty = self.capacity_penalty
+
+        fitness, solution = self.educate_solution(solution)
+
+        if all(self.inst.calc_feasible(route) for route in solution):
+            # Feasible
+            heapq.heappush(self.feasible_population, (-fitness, solution))
+        else:
+            # Infeasible
+            heapq.heappush(self.infeasible_population, (-fitness, solution))
+
+            for _ in range(2):
+                self.capacity_penalty *= 10
+                fitness, solution = self.educate_solution(solution)
+                if all(self.inst.calc_feasible(route) for route in solution):
+                    heapq.heappush(self.feasible_population, (-fitness, solution))
+                    break
+
+        self.cull_population()
+        self.capacity_penalty = original_penalty
 
     # }}}
 
@@ -170,7 +192,11 @@ class HGASolver:
         best_routes = [r.copy() for r in routes]
         best_dists = [self.inst.calc_route_distance(route) for route in best_routes]
         best_alloc = [self.inst.calc_allocation(route) for route in best_routes]
-        best_cost = sum(best_dists) + sum(best_alloc) * self.capacity_penalty
+        best_cost = (
+            sum(best_dists)
+            + sum(max(0, b - self.inst.vehicleCapacity) for b in best_alloc)
+            * self.capacity_penalty
+        )
 
         cost_change = None
         while cost_change is None or cost_change < 0:
@@ -194,13 +220,11 @@ class HGASolver:
 
                     for v in neighbors:
                         # Find which route contains v
-                        v_route_idx, v_pos = self.find_node_in_routes(
-                            best_routes, v
-                        )
+                        v_route_idx, v_pos = self.find_node_in_routes(best_routes, v)
                         v_route = best_routes[v_route_idx]
 
                         # Try all 9 moves
-                        for move in np.random.permutation(9)+1:
+                        for move in np.random.permutation(9) + 1:
                             (
                                 new_route,
                                 new_v_route,
@@ -217,25 +241,26 @@ class HGASolver:
                                 move,
                             )
 
-                            if cost_change < 0:
-                                print(move, cost_change)
+                            if cost_change < -1e-2:
                                 best_routes[route_idx] = new_route
                                 best_routes[v_route_idx] = new_v_route
                                 best_alloc[route_idx] = new_alloc
                                 best_alloc[v_route_idx] = new_v_alloc
+
                                 best_cost += cost_change
+
                                 break
 
-                        if cost_change < 0:
+                        if cost_change < -1e-2:
                             break
 
-                    if cost_change < 0:
+                    if cost_change < -1e-2:
                         break
 
-                if cost_change < 0:
+                if cost_change < -1e-2:
                     break
 
-        return best_routes
+        return best_cost, best_routes
 
     def find_node_in_routes(self, routes, node):
         """Find which route contains a node and its position"""
@@ -283,13 +308,16 @@ class HGASolver:
 
         # M1: Remove u and place it after v {{{
         if move_type == 1:
-            print(route_u, route_v)
+            if same_route and u_pos - v_pos == 1:
+                return None, None, None, None, 0
+
             route_u.pop(u_pos)
             insert_pos = v_pos if same_route and u_pos < v_pos else v_pos + 1
             route_v.insert(insert_pos, u)
-            new_alloc = alloc - demand_u
-            new_v_alloc = v_alloc + demand_u
-            print(route_u, route_v)
+
+            if not same_route:
+                new_alloc = alloc - demand_u
+                new_v_alloc = v_alloc + demand_u
 
             cost_change += (
                 self.inst.distances[a][x]
@@ -299,41 +327,41 @@ class HGASolver:
                 + self.inst.distances[u][y]
                 - self.inst.distances[v][y]
             )
-
-            print(self.inst.distances)
-            print(cost_change)
-            exit(0)
-
         # }}}
         # M2/M3: Remove u and x and place them after v (both orders) {{{
         elif move_type == 2 or move_type == 3:
-            if x == 0:
+            if x == 0 or (same_route and abs(u_pos - v_pos) == 1):
                 return None, None, None, None, 0
 
             route_u.pop(u_pos + 1)
             route_u.pop(u_pos)
             insert_pos = v_pos - 1 if same_route and u_pos < v_pos else v_pos + 1
-            route_v.insert(insert_pos, x if move_type == 2 else u)
-            route_v.insert(insert_pos + 1, u if move_type == 2 else x)
+            route_v.insert(insert_pos, u if move_type == 2 else x)
+            route_v.insert(insert_pos + 1, x if move_type == 2 else u)
 
-            new_alloc = alloc - demand_u - demand_x
-            new_v_alloc = v_alloc + demand_u + demand_x
+            if not same_route:
+                new_alloc = alloc - demand_u - demand_x
+                new_v_alloc = v_alloc + demand_u + demand_x
 
             cost_change += (
-                self.inst.distances[a][x]
+                self.inst.distances[a][w]
                 - self.inst.distances[a][u]
                 - self.inst.distances[x][w]
                 + self.inst.distances[v][u if move_type == 2 else x]
                 + self.inst.distances[x if move_type == 2 else u][y]
                 - self.inst.distances[v][y]
             )
+
         # }}}
         # M4: Swap u and v{{{
         elif move_type == 4:
+            if same_route and abs(u_pos - v_pos) == 1:
+                return None, None, None, None, 0
             route_u[u_pos], route_v[v_pos] = v, u
 
-            new_alloc = alloc - demand_u + demand_v
-            new_v_alloc = v_alloc + demand_u - demand_v
+            if not same_route:
+                new_alloc = alloc - demand_u + demand_v
+                new_v_alloc = v_alloc + demand_u - demand_v
 
             cost_change += (
                 self.inst.distances[a][v]
@@ -348,7 +376,7 @@ class HGASolver:
         # }}}
         # M5: Swap u and x with v{{{
         elif move_type == 5:
-            if x == 0 or x == v:
+            if x == 0 or (same_route and abs(v_pos - u_pos) <= 2):
                 return None, None, None, None, 0
 
             route_u[u_pos], route_v[v_pos] = v, u
@@ -357,8 +385,9 @@ class HGASolver:
             insert_pos = v_pos if same_route and u_pos < v_pos else v_pos + 1
             route_v.insert(insert_pos, x)
 
-            new_alloc = alloc - demand_u - demand_x + demand_v
-            new_v_alloc = v_alloc + demand_u + demand_x - demand_v
+            if not same_route:
+                new_alloc = alloc - demand_u - demand_x + demand_v
+                new_v_alloc = v_alloc + demand_u + demand_x - demand_v
 
             cost_change += (
                 self.inst.distances[a][v]
@@ -370,17 +399,19 @@ class HGASolver:
                 - self.inst.distances[b][v]
                 - self.inst.distances[v][y]
             )
+
         # }}}
         # M6: Swap u and x with v and y{{{
         elif move_type == 6:
-            if x == 0 or y == 0 or x == v or y == u:
+            if x == 0 or y == 0 or (same_route and abs(u_pos - v_pos) <= 2):
                 return None, None, None, None, 0
 
             route_u[u_pos], route_v[v_pos] = v, u
             route_u[u_pos + 1], route_v[v_pos + 1] = y, x
 
-            new_alloc = alloc - demand_u - demand_x + demand_v + demand_y
-            new_v_alloc = v_alloc + demand_u + demand_x - demand_v - demand_y
+            if not same_route:
+                new_alloc = alloc - demand_u - demand_x + demand_v + demand_y
+                new_v_alloc = v_alloc + demand_u + demand_x - demand_v - demand_y
 
             cost_change += (
                 self.inst.distances[a][v]
@@ -392,6 +423,7 @@ class HGASolver:
                 - self.inst.distances[b][v]
                 - self.inst.distances[y][z]
             )
+
         # }}}
         # M7: 2-opt intra-route move {{{
         elif move_type == 7:
@@ -401,6 +433,7 @@ class HGASolver:
             route_u = (
                 route_u[: u_pos + 1] + route_u[v_pos:u_pos:-1] + route_u[v_pos + 1 :]
             )
+            route_v = route_u
 
             cost_change += (
                 self.inst.distances[u][v]
@@ -409,7 +442,6 @@ class HGASolver:
                 - self.inst.distances[v][y]
             )
 
-            return route_u, route_v, alloc, v_alloc, cost_change
         # }}}
         # {{{ M8: 2-opt inter-route move type 1
         elif move_type == 8:
@@ -435,8 +467,18 @@ class HGASolver:
                 - self.inst.distances[u][x]
                 - self.inst.distances[v][y]
             )
+            # print("Predicted distance change:", cost_change)
+            # print(
+            #     "Predicted change from allocation penalties",
+            #     (
+            #         max(new_alloc - self.inst.vehicleCapacity, 0)
+            #         - max(alloc - self.inst.vehicleCapacity, 0)
+            #         + max(new_v_alloc - self.inst.vehicleCapacity, 0)
+            #         - max(v_alloc - self.inst.vehicleCapacity, 0)
+            #     )
+            #     * self.capacity_penalty,
+            # )
 
-            return route_u, route_v, new_alloc, new_v_alloc, cost_change
         # }}}
         # M9: 2-opt inter-route move type 2 {{{
         elif move_type == 9:
@@ -462,35 +504,35 @@ class HGASolver:
                 - self.inst.distances[u][x]
                 - self.inst.distances[v][y]
             )
-
-            return route_u, route_v, new_alloc, new_v_alloc, cost_change
         # }}}
         else:
             raise Exception("Selected move does not exist")
 
         cost_change += (
-            max(new_alloc, 0)
-            - max(alloc, 0)
-            + max(new_v_alloc, 0)
-            - max(v_alloc, 0)
+            max(new_alloc, self.inst.vehicleCapacity)
+            - max(alloc, self.inst.vehicleCapacity)
+            + max(new_v_alloc, self.inst.vehicleCapacity)
+            - max(v_alloc, self.inst.vehicleCapacity)
         ) * self.capacity_penalty
 
         return route_u, route_v, new_alloc, new_v_alloc, cost_change
+
     # }}}
 
-# {{{ select_parents
+    # {{{ select_parents
     def select_parents(population, distance_matrix, elite_bias=0.7):
         """
         Selects two parents using binary tournament selection with elitism bias.
-        
+
         Args:
             population: List of solutions (each solution is a list of routes)
             distance_matrix: 2D list of distances between nodes
             elite_bias: Probability to select the fitter candidate in a tournament
-        
+
         Returns:
             Two selected parent solutions
         """
+
         def evaluate(solution):
             """Helper: Calculate total distance of a solution"""
             total = 0
@@ -498,8 +540,8 @@ class HGASolver:
                 if not route:
                     continue
                 total += distance_matrix[0][route[0]]  # Depot to first
-                for i in range(len(route)-1):
-                    total += distance_matrix[route[i]][route[i+1]]
+                for i in range(len(route) - 1):
+                    total += distance_matrix[route[i]][route[i + 1]]
                 total += distance_matrix[route[-1]][0]  # Last to depot
             return total
 
@@ -507,7 +549,7 @@ class HGASolver:
             """Run a single binary tournament"""
             candidates = random.sample(population, 2)
             cost1, cost2 = evaluate(candidates[0]), evaluate(candidates[1])
-            
+
             # Select fitter candidate with elite_bias probability
             if cost1 < cost2:
                 return candidates[0] if random.random() < elite_bias else candidates[1]
@@ -517,37 +559,29 @@ class HGASolver:
         # Select two parents via independent tournaments
         parent1 = run_tournament()
         parent2 = run_tournament()
-        
-        return parent1, parent2
-# }}}
 
-# {{{ cull_population, nuke_population
+        return parent1, parent2
+
+    # }}}
+
+    # {{{ cull_population, nuke_population
     def cull_population(self):
         """
         Culls population down to mu individuals from mu+lambda
         """
-        new_feasible_population = []
-        new_infeasible_population = []
-        
-        if len(self.feasible_population) > self.population_size + self.generation_size:
-            for individual in self.feasible_population:
-                if self.feasible_queue_miu[0][0] <= individual[0]:
-                    new_feasible_population.append(individual[0])
-        else:
-            new_feasible_population = self.feasible_population
-                
-        if len(self.feasible_population) > self.population_size + self.generation_size:
-            for indvidual in self.infeasible_population:
-                if self.infeasible_queue_miu[0][0] <= individual[0]:
-                    new_feasible_population.append(individual[0])
-        else:
-            new_infeasible_population = self.infeasible_population
-        
+        if len(self.feasible_population) >= self.population_size + self.generation_size:
+            while len(self.feasible_population) > self.population_size:
+                # Pop from feasible population
+                heapq.heappop(self.feasible_population)
+
+        if len(self.infeasible_population) >= self.population_size + self.generation_size:
+            while len(self.infeasible_population) > self.population_size:
+                # Pop from infeasible population
+                heapq.heappop(self.infeasible_population)
+
         # Remove up to lambda clones with worst biased fitness
         # for ind in subpop:
         #     ind['biased_fitness'] = self.calc_biased_fitness(ind)
-        return (new_feasible_population, new_infeasible_population)
-
 
     def nuke_population():
         """
@@ -555,19 +589,16 @@ class HGASolver:
         """
         new_feasible_population = []
         new_infeasible_population = []
-        
-        
+
         for individual in self.feasible_population:
             if self.feasible_queue_miu_3[0][0] <= individual[0]:
                 new_feasible_population.append(individual[0])
-        
-        
+
         for indvidual in self.infeasible_population:
             if self.infeasible_queue_miu_3[0][0] <= individual[0]:
                 new_feasible_population.append(individual[0])
-        
-        
-        #TODO: Repopulate with random individuals
+
+        # TODO: Repopulate with random individuals
         return (new_feasible_population, new_infeasible_population)
         # }}}
 
@@ -575,4 +606,7 @@ class HGASolver:
         # print(self.pix_crossover([[1, 4], [2, 3], [], []], [[1], [2], [3], [4]]))
         # self.educate_solution([[1, 4], [2, 3], [], []])
         # print(self.inst.calc_neighbors(0.4))
-        return 1, 1, [[1], [2], [3], [4]]
+
+        solution = self.generate_solution()
+
+        return 1, 1, solution

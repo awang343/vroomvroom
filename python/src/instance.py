@@ -64,9 +64,9 @@ class VRPInstance:
         if not route:
             return 0
         return (
-            self.distances[0][route[0]] +
-            sum(self.distances[i][j] for i, j in zip(route, route[1:])) +
-            self.distances[route[-1]][0]
+            self.distances[0][route[0]]
+            + sum(self.distances[i][j] for i, j in zip(route, route[1:]))
+            + self.distances[route[-1]][0]
         )
 
     def calc_allocation(self, route):
@@ -96,3 +96,22 @@ class VRPInstance:
             neighbor_dict[i] = nearest
 
         return neighbor_dict
+
+    def calc_feasible(self, route):
+        return self.calc_allocation(route) <= self.vehicleCapacity
+    
+    def _test_cost(self, routes, multiplier):
+        print("Real distance:", sum(
+            self.calc_route_distance(route) for route in routes
+        ))
+        print("Real allocation penalty:", multiplier * sum(
+            max(0, self.calc_allocation(route) - self.vehicleCapacity)
+            for route in routes
+        ))
+
+        return sum(
+            self.calc_route_distance(route) for route in routes
+        ) + multiplier * sum(
+            max(0, self.calc_allocation(route) - self.vehicleCapacity)
+            for route in routes
+        )
