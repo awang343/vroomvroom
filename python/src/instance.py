@@ -100,15 +100,7 @@ class VRPInstance:
     def calc_feasible(self, route):
         return self.calc_allocation(route) <= self.vehicleCapacity
     
-    def _test_cost(self, routes, multiplier):
-        print("Real distance:", sum(
-            self.calc_route_distance(route) for route in routes
-        ))
-        print("Real allocation penalty:", multiplier * sum(
-            max(0, self.calc_allocation(route) - self.vehicleCapacity)
-            for route in routes
-        ))
-
+    def calc_cost(self, routes, penalty):
         return sum(
             self.calc_route_distance(route) for route in routes
         ) + multiplier * sum(
