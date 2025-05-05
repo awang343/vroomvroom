@@ -18,10 +18,10 @@ class HGASolver:
         self,
         inst,
         population_size=25,
-        generation_size=40,
+        generation_size=30,
         education_prob=1.0,
         repair_prob=0.5,
-        ri_granularity=0.1,
+        ri_granularity=0.4,
         feasibility_target=0.2,
     ):
         self.inst = inst
@@ -47,8 +47,6 @@ class HGASolver:
         heapq.heapify(self.feasible_elites)
         heapq.heapify(self.infeasible_elites)
 
-        self.repopulate()
-
     def calc_capacity_penalty(self):
         total_dist = 0
         for i in range(1, self.inst.numCustomers):
@@ -60,17 +58,10 @@ class HGASolver:
         avg_demand = sum(self.inst.demandOfCustomer) / len(self.all_customers)
         return avg_dist / avg_demand
 
-    def repopulate(self):
-        # Only put into infeasible when culling hasn't happened yet
-        for it in range(self.population_size * 4):
-            print("Iteration:", it)
-            self.generate_solution()
-        print(len(self.feasible_population), len(self.infeasible_population))
-
     # }}}
 
-    # {{{ generate_solution
-    def generate_solution(self):
+    # {{{ make_random_solution
+    def make_random_solution(self):
         """
         Randomly generate a solution
         """
@@ -89,9 +80,19 @@ class HGASolver:
         self.insert_solution(routes)
 
     # }}}
+
+    # {{{ make_mating_solution
+    def make_mating_solution(self):
+        p1, p2 = self.select_parents()
+        offspring = self.crossover(p1, p2)
+        self.insert_solution(offspring)
+        self.cull_population()
+
+    # }}}
+
     # {{{ insert_solution
-    def insert_solution(self, routes):
-        fitness, routes = self.educate_solution(routes)
+    def insert_solution(self, dirty_routes):
+        fitness, routes = self.educate(dirty_routes)
         if all(self.inst.calc_feasible(route) for route in routes):
             # Feasible
             heapq.heappush(self.feasible_population, (-fitness, routes))
@@ -103,7 +104,7 @@ class HGASolver:
                 original_penalty = self.capacity_penalty
                 for _ in range(2):
                     self.capacity_penalty *= 10
-                    fitness, routes = self.educate_solution(routes)
+                    fitness, routes = self.educate(routes)
                     if all(self.inst.calc_feasible(route) for route in routes):
                         heapq.heappush(self.feasible_population, (-fitness, routes))
                         break
@@ -112,6 +113,7 @@ class HGASolver:
         self.cull_population()
 
     # }}}
+
     # {{{ select_parents
     def select_parents(self):
         """
@@ -122,20 +124,16 @@ class HGASolver:
         for parent in range(2):
             """Run a single binary tournament"""
             candidates = random.sample(
-                self.feasible_population.extend(self.infeasible_population), 2
+                self.feasible_population + self.infeasible_population, 2
             )
-            cost1, cost2 = evaluate(candidates[0]), evaluate(candidates[1])
-
-            # Select fitter candidate with elite_bias probability
-            if cost1 < cost2:
-                parents.append(candidates[0] if -cost1 < -cost2 else candidates[1])
+            parents.append(max(candidates)[1])
 
         return parents
 
     # }}}
 
-    # {{{ crossover_solution
-    def crossover_solution(self, parent1, parent2):
+    # {{{ crossover
+    def crossover(self, parent1, parent2):
         """
         Performs PIX crossover for VRP with a single depot and multiple vehicles.
 
@@ -145,9 +143,6 @@ class HGASolver:
 
         Returns a new child individual (list of routes).
         """
-        # assert len(parent1) == self.inst.numVehicles
-        # assert len(parent2) == self.inst.numVehicles
-
         child = [[] for _ in range(self.inst.numVehicles)]
         visited = set()
         customers = set(self.all_customers)
@@ -208,14 +203,8 @@ class HGASolver:
 
     # }}}
 
-    def mate_population(self):
-        p1, p2 = self.select_parents()
-        offspring = self.crossover_solution(p1, p2)
-        offspring = self.educate_solution(offspring)
-        self.cull_population()
-
-    # {{{ educate_solution
-    def educate_solution(self, routes):
+    # {{{ educate
+    def educate(self, routes):
         """
         Perform route improvement using the 9 move operators
         """
@@ -498,17 +487,6 @@ class HGASolver:
                 - self.inst.distances[u][x]
                 - self.inst.distances[v][y]
             )
-            # print("Predicted distance change:", cost_change)
-            # print(
-            #     "Predicted change from allocation penalties",
-            #     (
-            #         max(new_alloc - self.inst.vehicleCapacity, 0)
-            #         - max(alloc - self.inst.vehicleCapacity, 0)
-            #         + max(new_v_alloc - self.inst.vehicleCapacity, 0)
-            #         - max(v_alloc - self.inst.vehicleCapacity, 0)
-            #     )
-            #     * self.capacity_penalty,
-            # )
 
         # }}}
         # M9: 2-opt inter-route move type 2 {{{
@@ -550,7 +528,7 @@ class HGASolver:
 
     # }}}
 
-    # {{{ cull_population, nuke_population
+    # {{{ cull_population
     def cull_population(self):
         """
         Culls population down to mu individuals from mu+lambda
@@ -568,10 +546,9 @@ class HGASolver:
                 # Pop from infeasible population
                 heapq.heappop(self.infeasible_population)
 
-        # Remove up to lambda clones with worst biased fitness
-        # for ind in subpop:
-        #     ind['biased_fitness'] = self.calc_biased_fitness(ind)
+    # }}}
 
+    # {{{ nuke_population
     def nuke_population():
         """
         Resets all but mu/3 individuals
@@ -589,13 +566,43 @@ class HGASolver:
 
         # TODO: Repopulate with random individuals
         return (new_feasible_population, new_infeasible_population)
-        # }}}
+
+    # }}}
 
     def solve(self):
-        # print(self.pix_crossover([[1, 4], [2, 3], [], []], [[1], [2], [3], [4]]))
-        # self.educate_solution([[1, 4], [2, 3], [], []])
-        # print(self.inst.calc_neighbors(0.4))
+        for it in range(self.population_size * 4):
+            print("Initial Generation Iteration:", it)
+            self.make_random_solution()
 
-        solution = self.generate_solution()
+            best_cost, best_routes = (
+                max(self.feasible_population) if self.feasible_population else (None, None)
+            )
+            print(best_cost, best_routes)
+        print("Population initialized")
 
-        return 1, 1, solution
+        _mating_iteration = 0
+
+        no_improvement = 0
+        while no_improvement < 100:
+            print("Mating Iteration:", _mating_iteration)
+            _mating_iteration += 1
+
+            self.make_mating_solution()
+            new_cost, new_routes = (
+                max(self.feasible_population)
+                if self.feasible_population
+                else (None, None)
+            )
+
+            if (
+                best_cost is None
+                or new_cost is None
+                or np.isclose(new_cost, best_cost)
+            ):
+                no_improvement += 1
+            else:
+                best_cost, best_routes = new_cost, new_routes
+                print("\tNew best cost:", new_cost)
+                no_improvement = 0
+
+        return -best_cost, 0, best_routes
