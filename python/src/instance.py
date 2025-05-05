@@ -63,30 +63,17 @@ class VRPInstance:
         """
         if not route:
             return 0
-
-        total = 0
-
-        total += self.distances[0][route[0]]
-        for i, j in zip(route[:-1], route[1:]):
-            total += self.distances[i][j]
-        total += self.distances[route[-1]][0]
-
-        return total
-
-    def calc_overallocation(self, route):
-        """
-        Calculates the overallocation to a given route
-        based on given vehicle capacities
-        """
-        return max(
-            0, sum(self.demandOfCustomer[c] for c in route) - self.vehicleCapacity
+        return (
+            self.distances[0][route[0]] +
+            sum(self.distances[i][j] for i, j in zip(route, route[1:])) +
+            self.distances[route[-1]][0]
         )
 
-    def calc_feasible(self, routes):
-        return all(
-            sum(self.demandOfCustomer[c] for c in route) <= self.vehicleCapacity
-            for route in routes
-        )
+    def calc_allocation(self, route):
+        """
+        Calculates the demand allocation to a given vehicle
+        """
+        return sum(self.demandOfCustomer[c] for c in route)
 
     def calc_neighbors(self, h):
         """
