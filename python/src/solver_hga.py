@@ -21,7 +21,7 @@ class HGASolver:
         generation_size=40,
         education_prob=1.0,
         repair_prob=0.5,
-        ri_granularity=0.3,
+        ri_granularity=0.1,
         feasibility_target=0.2,
     ):
         self.inst = inst
@@ -61,6 +61,7 @@ class HGASolver:
         return avg_dist / avg_demand
 
     def repopulate(self):
+        # Only put into infeasible when culling hasn't happened yet
         for it in range(self.population_size * 4):
             print("Iteration:", it)
             self.generate_solution()
@@ -81,31 +82,55 @@ class HGASolver:
             np.random.choice(range(1, len(customers)), size=k - 1, replace=False)
         )
         split_points = np.concatenate(([0], split_points, [len(customers)]))
-        solution = [
+        routes = [
             customers[split_points[i] : split_points[i + 1]].tolist() for i in range(k)
         ]
 
+        self.insert_solution(routes)
 
-        original_penalty = self.capacity_penalty
-
-        fitness, solution = self.educate_solution(solution)
-
-        if all(self.inst.calc_feasible(route) for route in solution):
+    # }}}
+    # {{{ insert_solution
+    def insert_solution(self, routes):
+        fitness, routes = self.educate_solution(routes)
+        if all(self.inst.calc_feasible(route) for route in routes):
             # Feasible
-            heapq.heappush(self.feasible_population, (-fitness, solution))
+            heapq.heappush(self.feasible_population, (-fitness, routes))
         else:
             # Infeasible
-            heapq.heappush(self.infeasible_population, (-fitness, solution))
+            heapq.heappush(self.infeasible_population, (-fitness, routes))
 
-            for _ in range(2):
-                self.capacity_penalty *= 10
-                fitness, solution = self.educate_solution(solution)
-                if all(self.inst.calc_feasible(route) for route in solution):
-                    heapq.heappush(self.feasible_population, (-fitness, solution))
-                    break
+            if random.random() < self.repair_prob:
+                original_penalty = self.capacity_penalty
+                for _ in range(2):
+                    self.capacity_penalty *= 10
+                    fitness, routes = self.educate_solution(routes)
+                    if all(self.inst.calc_feasible(route) for route in routes):
+                        heapq.heappush(self.feasible_population, (-fitness, routes))
+                        break
+                self.capacity_penalty = original_penalty
 
         self.cull_population()
-        self.capacity_penalty = original_penalty
+
+    # }}}
+    # {{{ select_parents
+    def select_parents(self):
+        """
+        Selects two parents using binary tournament selection with elitism bias.
+        """
+
+        parents = []
+        for parent in range(2):
+            """Run a single binary tournament"""
+            candidates = random.sample(
+                self.feasible_population.extend(self.infeasible_population), 2
+            )
+            cost1, cost2 = evaluate(candidates[0]), evaluate(candidates[1])
+
+            # Select fitter candidate with elite_bias probability
+            if cost1 < cost2:
+                parents.append(candidates[0] if -cost1 < -cost2 else candidates[1])
+
+        return parents
 
     # }}}
 
@@ -182,6 +207,12 @@ class HGASolver:
         return child
 
     # }}}
+
+    def mate_population(self):
+        p1, p2 = self.select_parents()
+        offspring = self.crossover_solution(p1, p2)
+        offspring = self.educate_solution(offspring)
+        self.cull_population()
 
     # {{{ educate_solution
     def educate_solution(self, routes):
@@ -519,51 +550,6 @@ class HGASolver:
 
     # }}}
 
-    # {{{ select_parents
-    def select_parents(population, distance_matrix, elite_bias=0.7):
-        """
-        Selects two parents using binary tournament selection with elitism bias.
-
-        Args:
-            population: List of solutions (each solution is a list of routes)
-            distance_matrix: 2D list of distances between nodes
-            elite_bias: Probability to select the fitter candidate in a tournament
-
-        Returns:
-            Two selected parent solutions
-        """
-
-        def evaluate(solution):
-            """Helper: Calculate total distance of a solution"""
-            total = 0
-            for route in solution:
-                if not route:
-                    continue
-                total += distance_matrix[0][route[0]]  # Depot to first
-                for i in range(len(route) - 1):
-                    total += distance_matrix[route[i]][route[i + 1]]
-                total += distance_matrix[route[-1]][0]  # Last to depot
-            return total
-
-        def run_tournament():
-            """Run a single binary tournament"""
-            candidates = random.sample(self.feasible_population.extend(self.infeasible_population), 2)
-            cost1, cost2 = evaluate(candidates[0]), evaluate(candidates[1])
-
-            # Select fitter candidate with elite_bias probability
-            if cost1 < cost2:
-                return candidates[0] if random.random() < elite_bias else candidates[1]
-            else:
-                return candidates[1] if random.random() < elite_bias else candidates[0]
-
-        # Select two parents via independent tournaments
-        parent1 = run_tournament()
-        parent2 = run_tournament()
-
-        return parent1, parent2
-
-    # }}}
-
     # {{{ cull_population, nuke_population
     def cull_population(self):
         """
@@ -574,7 +560,10 @@ class HGASolver:
                 # Pop from feasible population
                 heapq.heappop(self.feasible_population)
 
-        if len(self.infeasible_population) >= self.population_size + self.generation_size:
+        if (
+            len(self.infeasible_population)
+            >= self.population_size + self.generation_size
+        ):
             while len(self.infeasible_population) > self.population_size:
                 # Pop from infeasible population
                 heapq.heappop(self.infeasible_population)
