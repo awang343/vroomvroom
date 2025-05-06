@@ -1,15 +1,6 @@
 import random
 from typing import List, Dict
 
-class Individual:
-    def __init__(self, idx, successors, predecessors, eval_cost):
-        self.idx = idx
-        self.successors = successors  # List of successors for each client
-        self.predecessors = predecessors  # List of predecessors for each client
-        self.eval_cost = eval_cost  # Penalized cost of the individual
-        self.indivsPerProximity = {}  # Proximity map: {distance: Individual}
-        self.biasedFitness = 0.0  # Biased fitness value
-
 class Population:
     def __init__(self, params):
         self.params = params
