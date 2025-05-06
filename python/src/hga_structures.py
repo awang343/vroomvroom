@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass
@@ -18,7 +19,7 @@ class Customer:
     x: float
     y: float
     demand: int
-    polarangle: int
+    polar: int
 
 
 @dataclass
@@ -28,9 +29,9 @@ class Node:
     is_depot: bool = False  # Whether the node is a depot
     position: int = -1  # Position in the route
     last_tested_RI: int = -1  # Last time RI move was tested
-    next: Node = None  # Next node in the route
-    prev: Node = None  # Previous node in the route
-    route: Node = None  # Reference to the associated route
+    next: Optional['Node'] = None  # Next node in the route
+    prev: Optional['Node'] = None  # Previous node in the route
+    route: Optional['Node'] = None  # Reference to the associated route
 
     cum_load: float = 0.0  # Cumulative load until this node
     cum_dist: float = 0.0  # Cumulative dist until this node
@@ -111,7 +112,7 @@ class Individual:
             self.eval.capacity_excess += max(0, load - self.inst.vehicle_capacity)
 
         self.eval.penalizedCost = (
-            self.eval.distance + self.eval.capacity_excess * self.inst.penalty_capacity
+            self.eval.distance + self.eval.capacity_excess * self.inst.capacity_penalty
         )
         self.eval.is_feasible = self.eval.capacity_excess < 1e-3
 

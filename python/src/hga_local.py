@@ -63,7 +63,7 @@ class LocalSearch:
         while not self.search_completed:
             if self.loop_id > 1:
                 # Force at least 2 loops to make sure all moves are checked
-                self.searchCompleted = True
+                self.search_completed = True
 
             # CLASSICAL ROUTE IMPROVEMENT (RI) MOVES IN NEIGHBORHOOD
             for pos_u in range(self.inst.num_customers):
@@ -82,7 +82,7 @@ class LocalSearch:
                             self.node_u.route.last_modified,
                             self.node_v.route.last_modified,
                         )
-                        > self.node_u.last_tested_RI
+                        > last_test_RI_node_u
                     ):
                         # Only evaluate moves involving routes that have
                         # been modified since last move evaluations for node_u
@@ -122,9 +122,9 @@ class LocalSearch:
                             if not self.intraroute and self.move9():
                                 continue  # 2-OPT*
 
-                # MOVES INVOLVING AN EMPTY ROUTE -- NOT TESTED IN THE FIRST LOOP TO AVOID INCREASING TOO MUCH THE FLEET SIZE
-                if self.loopID > 0 and self.emptyRoutes:
-                    self.node_v = self.routes[self.emptyRoutes.pop(0)].depot
+                # MOVES INVOLVING AN EMPTY ROUTE
+                if self.loop_id > 0 and self.empty_routes:
+                    self.node_v = self.routes[self.empty_routes.pop(0)].depot
                     self.setLocalVariables()
                     if self.move1():
                         continue  # RELOCATE
@@ -135,33 +135,33 @@ class LocalSearch:
                     if self.move9():
                         continue  # 2-OPT*
 
-            if self.params.ap.useSwapStar == 1 and self.params.areCoordinatesProvided:
-                # (SWAP*) MOVES LIMITED TO ROUTE PAIRS WHOSE CIRCLE SECTORS OVERLAP
-                for rU in range(self.self.inst.num_vehicles):
-                    self.route_u = self.routes[self.orderRoutes[rU]]
-                    lastTestSWAPStarRouteU = self.route_u.whenLastTestedSWAPStar
-                    self.route_u.whenLastTestedSWAPStar = self.numMoves
-                    for rV in range(self.self.inst.num_vehicles):
-                        self.route_v = self.routes[self.orderRoutes[rV]]
-                        if (
-                            self.route_u.nbCustomers > 0
-                            and self.route_v.nbCustomers > 0
-                            and self.route_u.idx < self.route_v.idx
-                        ):
-                            if (
-                                self.loopID == 0
-                                or max(
-                                    self.route_u.whenLastModified,
-                                    self.route_v.whenLastModified,
-                                )
-                                > lastTestSWAPStarRouteU
-                            ):
-                                if CircleSector.overlap(
-                                    self.route_u.sector, self.route_v.sector
-                                ):
-                                    self.swapStar()
+            # (SWAP*) MOVES LIMITED TO ROUTE PAIRS WHOSE CIRCLE SECTORS OVERLAP
+            for rU in range(self.inst.num_vehicles):
+                self.route_u = self.routes[self.order_routes[rU]]
+                last_test_SWAP_route_u = self.route_u.last_tested_SWAP
+                self.route_u.last_tested_SWAP = self.num_moves
 
-            self.loopID += 1
+                for rV in range(self.inst.num_vehicles):
+                    self.route_v = self.routes[self.order_routes[rV]]
+                    if (
+                        self.route_u.nbCustomers > 0
+                        and self.route_v.nbCustomers > 0
+                        and self.route_u.idx < self.route_v.idx
+                    ):
+                        if (
+                            self.loop_id == 0
+                            or max(
+                                self.route_u.last_modified,
+                                self.route_v.last_modified,
+                            )
+                            > last_test_SWAP_route_u
+                        ):
+                            if CircleSector.overlap(
+                                self.route_u.sector, self.route_v.sector
+                            ):
+                                self.swapStar()
+
+            self.loop_id += 1
 
         # Register the solution produced by the LS in the individual
         self.exportIndividual(indiv)
@@ -217,14 +217,15 @@ class LocalSearch:
 
     # }}}
 
-    # {{{ variable aliasing
+    # {{{ Variable Aliasing
     def setLocalVariables(self):
-        self.load_u = self.inst.customers[self.node_u_idx].demand
-        self.load_x = self.inst.customers[self.node_x_idx].demand
-        self.load_v = self.inst.customers[self.node_v_index].demand
-        self.load_y = self.inst.customers[self.node_y_index].demand
+        self.route_u = self.node_u.route
+        self.route_v = self.node_v.route
+        self.load_u = self.inst.customers[self.node_u.idx].demand
+        self.load_x = self.inst.customers[self.node_x.idx].demand
+        self.load_v = self.inst.customers[self.node_v.idx].demand
+        self.load_y = self.inst.customers[self.node_y.idx].demand
         self.intraroute = self.route_u == self.route_v
-
     # }}}
 
     # {{{ exportIndividual
@@ -249,7 +250,7 @@ class LocalSearch:
                 pos += 1
 
         # Evaluate total cost using problem parameters
-        indiv.evaluateCompleteCost(self.params)
+        indiv.evaluateCompleteCost()
 
     # }}}
 
@@ -304,7 +305,6 @@ class LocalSearch:
 
             do = False
 
-        route_ls.duration = time
         route_ls.load = load
         route_ls.penalty = self.penaltyExcessLoad(load)
         route_ls.num_customers = myplace - 1
@@ -378,20 +378,17 @@ class LocalSearch:
                 - self.inst.distances[U.idx][U.next.idx]
             )
 
-            if (
-                R2.whenLastModified
-                > self.bestInsertClient[R2.idx][U.idx].whenLastCalculated
-            ):
-                self.bestInsertClient[R2.idx][U.idx].reset()
-                self.bestInsertClient[R2.idx][U.idx].whenLastCalculated = self.numMoves
+            if R2.last_modified > self.best_inserts[R2.idx][U.idx].last_calculated:
+                self.best_inserts[R2.idx][U.idx].reset()
+                self.best_inserts[R2.idx][U.idx].last_calculated = self.num_moves
 
                 initial_cost = (
-                    self.params.timeCost[0][U.idx]
-                    + self.params.timeCost[U.idx][R2.depot.next.idx]
-                    - self.params.timeCost[0][R2.depot.next.idx]
+                    self.inst.distances[0][U.idx]
+                    + self.inst.distances[U.idx][R2.depot.next.idx]
+                    - self.inst.distances[0][R2.depot.next.idx]
                 )
-                self.bestInsertClient[R2.idx][U.idx].bestCost[0] = initial_cost
-                self.bestInsertClient[R2.idx][U.idx].bestLocation[0] = R2.depot
+                self.best_inserts[R2.idx][U.idx].bestCost[0] = initial_cost
+                self.best_inserts[R2.idx][U.idx].bestLocation[0] = R2.depot
 
                 V = R2.depot.next
                 while not V.is_depot:
@@ -400,7 +397,7 @@ class LocalSearch:
                         + self.inst.distances[U.idx][V.next.idx]
                         - self.inst.distances[V.idx][V.next.idx]
                     )
-                    self.bestInsertClient[R2.idx][U.idx].compareAndAdd(deltaCost, V)
+                    self.best_inserts[R2.idx][U.idx].compareAndAdd(deltaCost, V)
                     V = V.next
 
             U = U.next
@@ -409,7 +406,7 @@ class LocalSearch:
 
     # {{{ getCheapestInsertSimultRemoval
     def getCheapestInsertSimultRemoval(self, U, V):
-        myBestInsert = self.bestInsertClient[V.route.idx][U.idx]
+        myBestInsert = self.best_inserts[V.route.idx][U.idx]
         found = False
         bestPosition = myBestInsert.bestLocation[0]
         bestCost = myBestInsert.bestCost[0]
@@ -429,9 +426,9 @@ class LocalSearch:
 
         # Evaluate inserting in place of V
         deltaCost = (
-            self.params.timeCost[V.prev.idx][U.idx]
-            + self.params.timeCost[U.idx][V.next.idx]
-            - self.params.timeCost[V.prev.idx][V.next.idx]
+            self.inst.distances[V.prev.idx][U.idx]
+            + self.inst.distances[U.idx][V.next.idx]
+            - self.inst.distances[V.prev.idx][V.next.idx]
         )
 
         if not found or deltaCost < bestCost:
@@ -458,16 +455,16 @@ class LocalSearch:
                 deltaPenRouteU = (
                     penaltyExcessLoad(
                         self.route_u.load
-                        + self.params.cli[node_v.idx].demand
-                        - self.params.cli[node_u.idx].demand
+                        + self.inst.customers[node_v.idx].demand
+                        - self.inst.customers[node_u.idx].demand
                     )
                     - self.route_u.penalty
                 )
                 deltaPenRouteV = (
                     penaltyExcessLoad(
                         self.route_v.load
-                        + self.params.cli[node_u.idx].demand
-                        - self.params.cli[node_v.idx].demand
+                        + self.inst.customers[node_u.idx].demand
+                        - self.inst.customers[node_v.idx].demand
                     )
                     - self.route_v.penalty
                 )
@@ -497,20 +494,6 @@ class LocalSearch:
                         + deltaPenRouteV
                         + node_v.deltaRemoval
                         + extraV
-                        + penaltyExcessDuration(
-                            self.route_u.duration
-                            + node_u.deltaRemoval
-                            + extraU
-                            + self.params.cli[node_v.idx].serviceDuration
-                            - self.params.cli[node_u.idx].serviceDuration
-                        )
-                        + penaltyExcessDuration(
-                            self.route_v.duration
-                            + node_v.deltaRemoval
-                            + extraV
-                            - self.params.cli[node_v.idx].serviceDuration
-                            + self.params.cli[node_u.idx].serviceDuration
-                        )
                     )
 
                     if mySwapStar.moveCost < myBestSwapStar.moveCost:
@@ -524,39 +507,29 @@ class LocalSearch:
         while not node_u.is_depot:
             mySwapStar = SwapStarElement()
             mySwapStar.U = node_u
-            mySwapStar.bestPositionU = self.bestInsertClient[self.route_v.idx][
+            mySwapStar.bestPositionU = self.best_inserts[self.route_v.idx][
                 node_u.idx
             ].bestLocation[0]
             deltaDistRouteU = (
-                self.params.timeCost[node_u.prev.idx][node_u.next.idx]
-                - self.params.timeCost[node_u.prev.idx][node_u.idx]
-                - self.params.timeCost[node_u.idx][node_u.next.idx]
+                self.inst.distances[node_u.prev.idx][node_u.next.idx]
+                - self.inst.distances[node_u.prev.idx][node_u.idx]
+                - self.inst.distances[node_u.idx][node_u.next.idx]
             )
-            deltaDistRouteV = self.bestInsertClient[self.route_v.idx][
-                node_u.idx
-            ].bestCost[0]
+            deltaDistRouteV = self.best_inserts[self.route_v.idx][node_u.idx].bestCost[
+                0
+            ]
 
             mySwapStar.moveCost = (
                 deltaDistRouteU
                 + deltaDistRouteV
                 + penaltyExcessLoad(
-                    self.route_u.load - self.params.cli[node_u.idx].demand
+                    self.route_u.load - self.inst.customers[node_u.idx].demand
                 )
                 - self.route_u.penalty
                 + penaltyExcessLoad(
-                    self.route_v.load + self.params.cli[node_u.idx].demand
+                    self.route_v.load + self.inst.customers[node_u.idx].demand
                 )
                 - self.route_v.penalty
-                + penaltyExcessDuration(
-                    self.route_u.duration
-                    + deltaDistRouteU
-                    - self.params.cli[node_u.idx].serviceDuration
-                )
-                + penaltyExcessDuration(
-                    self.route_v.duration
-                    + deltaDistRouteV
-                    + self.params.cli[node_u.idx].serviceDuration
-                )
             )
 
             if mySwapStar.moveCost < myBestSwapStar.moveCost:
@@ -569,39 +542,29 @@ class LocalSearch:
         while not node_v.is_depot:
             mySwapStar = SwapStarElement()
             mySwapStar.V = node_v
-            mySwapStar.bestPositionV = self.bestInsertClient[self.route_u.idx][
+            mySwapStar.bestPositionV = self.best_inserts[self.route_u.idx][
                 node_v.idx
             ].bestLocation[0]
-            deltaDistRouteU = self.bestInsertClient[self.route_u.idx][
-                node_v.idx
-            ].bestCost[0]
+            deltaDistRouteU = self.best_inserts[self.route_u.idx][node_v.idx].bestCost[
+                0
+            ]
             deltaDistRouteV = (
-                self.params.timeCost[node_v.prev.idx][node_v.next.idx]
-                - self.params.timeCost[node_v.prev.idx][node_v.idx]
-                - self.params.timeCost[node_v.idx][node_v.next.idx]
+                self.inst.distances[node_v.prev.idx][node_v.next.idx]
+                - self.inst.distances[node_v.prev.idx][node_v.idx]
+                - self.inst.distances[node_v.idx][node_v.next.idx]
             )
 
             mySwapStar.moveCost = (
                 deltaDistRouteU
                 + deltaDistRouteV
                 + penaltyExcessLoad(
-                    self.route_u.load + self.params.cli[node_v.idx].demand
+                    self.route_u.load + self.inst.customers[node_v.idx].demand
                 )
                 - self.route_u.penalty
                 + penaltyExcessLoad(
-                    self.route_v.load - self.params.cli[node_v.idx].demand
+                    self.route_v.load - self.inst.customers[node_v.idx].demand
                 )
                 - self.route_v.penalty
-                + penaltyExcessDuration(
-                    self.route_u.duration
-                    + deltaDistRouteU
-                    + self.params.cli[node_v.idx].serviceDuration
-                )
-                + penaltyExcessDuration(
-                    self.route_v.duration
-                    + deltaDistRouteV
-                    - self.params.cli[node_v.idx].serviceDuration
-                )
             )
 
             if mySwapStar.moveCost < myBestSwapStar.moveCost:
@@ -617,8 +580,8 @@ class LocalSearch:
         if myBestSwapStar.bestPositionV is not None:
             self.insertNode(myBestSwapStar.V, myBestSwapStar.bestPositionV)
 
-        self.numMoves += 1
-        self.searchCompleted = False
+        self.num_moves += 1
+        self.search_completed = False
         self.updateRouteData(self.route_u)
         self.updateRouteData(self.route_v)
 
@@ -629,35 +592,29 @@ class LocalSearch:
     # {{{ M1
     def move1(self):
         costSuppU = (
-            self.params.timeCost[self.node_u.prev.idx][self.node_x.idx]
-            - self.params.timeCost[self.node_u.prev.idx][self.node_u.idx]
-            - self.params.timeCost[self.node_u.idx][self.node_x.idx]
+            self.inst.distances[self.node_u.prev.idx][self.node_x.idx]
+            - self.inst.distances[self.node_u.prev.idx][self.node_u.idx]
+            - self.inst.distances[self.node_u.idx][self.node_x.idx]
         )
 
         costSuppV = (
-            self.params.timeCost[self.node_v.idx][self.node_u.idx]
-            + self.params.timeCost[self.node_u.idx][self.node_y.idx]
-            - self.params.timeCost[self.node_v.idx][self.node_y.idx]
+            self.inst.distances[self.node_v.idx][self.node_u.idx]
+            + self.inst.distances[self.node_u.idx][self.node_y.idx]
+            - self.inst.distances[self.node_v.idx][self.node_y.idx]
         )
 
         if not self.intraroute:
-            # Early move pruning to save CPU time. Guarantees that this move cannot improve without checking additional (load, duration...) constraints
+            # Early move pruning to save CPU time. Guarantees that this move cannot improve without checking additional load constraints
             if costSuppU + costSuppV >= self.route_u.penalty + self.route_v.penalty:
                 return False
 
             costSuppU += (
-                self.penaltyExcessDuration(
-                    self.route_u.duration + costSuppU - self.serviceU
-                )
-                + self.penaltyExcessLoad(self.route_u.load - self.loud_u)
+                +self.penaltyExcessLoad(self.route_u.load - self.loud_u)
                 - self.route_u.penalty
             )
 
             costSuppV += (
-                self.penaltyExcessDuration(
-                    self.route_v.duration + costSuppV + self.serviceU
-                )
-                + self.penaltyExcessLoad(self.route_v.load + self.loud_u)
+                +self.penaltyExcessLoad(self.route_v.load + self.loud_u)
                 - self.route_v.penalty
             )
 
@@ -668,8 +625,8 @@ class LocalSearch:
             return False
 
         self.insertNode(self.node_u, self.node_v)
-        self.numMoves += 1  # Increment move counter before updating route data
-        self.searchCompleted = False
+        self.num_moves += 1  # Increment move counter before updating route data
+        self.search_completed = False
         self.updateRouteData(self.route_u)
 
         if not self.intraroute:
@@ -682,43 +639,29 @@ class LocalSearch:
     # {{{ M2
     def move2(self):
         costSuppU = (
-            self.params.timeCost[self.node_u.prev.index][self.node_x.next.idx]
-            - self.params.timeCost[self.node_u.prev.idx][self.node_u.idx]
-            - self.params.timeCost[self.node_x.idx][self.node_x.next.idx]
+            self.inst.distances[self.node_u.prev.idx][self.node_x.next.idx]
+            - self.inst.distances[self.node_u.prev.idx][self.node_u.idx]
+            - self.inst.distances[self.node_x.idx][self.node_x.next.idx]
         )
 
         costSuppV = (
-            self.params.timeCost[self.node_v.idx][self.node_u.idx]
-            + self.params.timeCost[self.node_x.idx][self.node_y.idx]
-            - self.params.timeCost[self.node_v.idx][self.node_y.idx]
+            self.inst.distances[self.node_v.idx][self.node_u.idx]
+            + self.inst.distances[self.node_x.idx][self.node_y.idx]
+            - self.inst.distances[self.node_v.idx][self.node_y.idx]
         )
 
         if not self.intraroute:
-            # Early move pruning to save CPU time. Guarantees that this move cannot improve without checking additional (load, duration...) constraints
+            # Early move pruning to save CPU time. Guarantees that this move cannot improve without checking additional (load) constraints
             if costSuppU + costSuppV >= self.route_u.penalty + self.route_v.penalty:
                 return False
 
             costSuppU += (
-                self.penaltyExcessDuration(
-                    self.route_u.duration
-                    + costSuppU
-                    - self.params.timeCost[self.node_u.idx][self.node_x.idx]
-                    - self.serviceU
-                    - self.serviceX
-                )
-                + self.penaltyExcessLoad(self.route_u.load - self.loud_u - self.load_x)
+                self.penaltyExcessLoad(self.route_u.load - self.loud_u - self.load_x)
                 - self.route_u.penalty
             )
 
             costSuppV += (
-                self.penaltyExcessDuration(
-                    self.route_v.duration
-                    + costSuppV
-                    + self.params.timeCost[self.node_u.idx][self.node_x.idx]
-                    + self.serviceU
-                    + self.serviceX
-                )
-                + self.penaltyExcessLoad(self.route_v.load + self.loud_u + self.load_x)
+                self.penaltyExcessLoad(self.route_v.load + self.loud_u + self.load_x)
                 - self.route_v.penalty
             )
 
@@ -735,8 +678,8 @@ class LocalSearch:
         self.insertNode(self.node_u, self.node_v)
         self.insertNode(self.node_x, self.node_u)
 
-        self.numMoves += 1  # Increment move counter before updating route data
-        self.searchCompleted = False
+        self.num_moves += 1  # Increment move counter before updating route data
+        self.search_completed = False
         self.updateRouteData(self.route_u)
 
         if not self.intraroute:
@@ -749,37 +692,31 @@ class LocalSearch:
     # {{{ M3
     def move3(self):
         costSuppU = (
-            self.params.timeCost[self.node_u.prev.idx][self.node_x.next.idx]
-            - self.params.timeCost[self.node_u.prev.idx][self.node_u.idx]
-            - self.params.timeCost[self.node_u.idx][self.node_x.idx]
-            - self.params.timeCost[self.node_x.idx][self.node_x.next.idx]
+            self.inst.distances[self.node_u.prev.idx][self.node_x.next.idx]
+            - self.inst.distances[self.node_u.prev.idx][self.node_u.idx]
+            - self.inst.distances[self.node_u.idx][self.node_x.idx]
+            - self.inst.distances[self.node_x.idx][self.node_x.next.idx]
         )
 
         costSuppV = (
-            self.params.timeCost[self.node_v.idx][self.node_x.idx]
-            + self.params.timeCost[self.node_x.idx][self.node_u.idx]
-            + self.params.timeCost[self.node_u.idx][self.node_y.idx]
-            - self.params.timeCost[self.node_v.idx][self.node_y.idx]
+            self.inst.distances[self.node_v.idx][self.node_x.idx]
+            + self.inst.distances[self.node_x.idx][self.node_u.idx]
+            + self.inst.distances[self.node_u.idx][self.node_y.idx]
+            - self.inst.distances[self.node_v.idx][self.node_y.idx]
         )
 
         if not self.intraroute:
-            # Early move pruning to save CPU time. Guarantees that this move cannot improve without checking additional (load, duration...) constraints
+            # Early move pruning to save CPU time. Guarantees that this move cannot improve without checking load constraints
             if costSuppU + costSuppV >= self.route_u.penalty + self.route_v.penalty:
                 return False
 
             costSuppU += (
-                self.penaltyExcessDuration(
-                    self.route_u.duration + costSuppU - self.serviceU - self.serviceX
-                )
-                + self.penaltyExcessLoad(self.route_u.load - self.loud_u - self.load_x)
+                self.penaltyExcessLoad(self.route_u.load - self.loud_u - self.load_x)
                 - self.route_u.penalty
             )
 
             costSuppV += (
-                self.penaltyExcessDuration(
-                    self.route_v.duration + costSuppV + self.serviceU + self.serviceX
-                )
-                + self.penaltyExcessLoad(self.route_v.load + self.loud_u + self.load_x)
+                self.penaltyExcessLoad(self.route_v.load + self.loud_u + self.load_x)
                 - self.route_v.penalty
             )
 
@@ -796,8 +733,8 @@ class LocalSearch:
         self.insertNode(self.node_x, self.node_v)
         self.insertNode(self.node_u, self.node_x)
 
-        self.numMoves += 1  # Increment move counter before updating route data
-        self.searchCompleted = False
+        self.num_moves += 1  # Increment move counter before updating route data
+        self.search_completed = False
         self.updateRouteData(self.route_u)
 
         if not self.intraroute:
@@ -810,37 +747,31 @@ class LocalSearch:
     # {{{ M4
     def move4(self):
         costSuppU = (
-            self.params.timeCost[self.node_u.prev.idx][self.node_v.idx]
-            + self.params.timeCost[self.node_v.idx][self.node_x.idx]
-            - self.params.timeCost[self.node_u.prev.idx][self.node_u.idx]
-            - self.params.timeCost[self.node_u.idx][self.node_x.idx]
+            self.inst.distances[self.node_u.prev.idx][self.node_v.idx]
+            + self.inst.distances[self.node_v.idx][self.node_x.idx]
+            - self.inst.distances[self.node_u.prev.idx][self.node_u.idx]
+            - self.inst.distances[self.node_u.idx][self.node_x.idx]
         )
 
         costSuppV = (
-            self.params.timeCost[self.node_v.prev.idx][self.node_u.idx]
-            + self.params.timeCost[self.node_u.idx][self.node_y.idx]
-            - self.params.timeCost[self.node_v.prev.idx][self.node_v.idx]
-            - self.params.timeCost[self.node_v.idx][self.node_y.idx]
+            self.inst.distances[self.node_v.prev.idx][self.node_u.idx]
+            + self.inst.distances[self.node_u.idx][self.node_y.idx]
+            - self.inst.distances[self.node_v.prev.idx][self.node_v.idx]
+            - self.inst.distances[self.node_v.idx][self.node_y.idx]
         )
 
         if not self.intraroute:
-            # Early move pruning to save CPU time. Guarantees that this move cannot improve without checking additional (load, duration...) constraints
+            # Early move pruning to save CPU time. Guarantees that this move cannot improve without checking load constraints
             if costSuppU + costSuppV >= self.route_u.penalty + self.route_v.penalty:
                 return False
 
             costSuppU += (
-                self.penaltyExcessDuration(
-                    self.route_u.duration + costSuppU + self.serviceV - self.serviceU
-                )
-                + self.penaltyExcessLoad(self.route_u.load + self.load_v - self.loud_u)
+                self.penaltyExcessLoad(self.route_u.load + self.load_v - self.loud_u)
                 - self.route_u.penalty
             )
 
             costSuppV += (
-                self.penaltyExcessDuration(
-                    self.route_v.duration + costSuppV - self.serviceV + self.serviceU
-                )
-                + self.penaltyExcessLoad(self.route_v.load + self.loud_u - self.load_v)
+                self.penaltyExcessLoad(self.route_v.load + self.loud_u - self.load_v)
                 - self.route_v.penalty
             )
 
@@ -855,8 +786,8 @@ class LocalSearch:
 
         self.swapNode(self.node_u, self.node_v)
 
-        self.numMoves += 1  # Increment move counter before updating route data
-        self.searchCompleted = False
+        self.num_moves += 1  # Increment move counter before updating route data
+        self.search_completed = False
         self.updateRouteData(self.route_u)
 
         if not self.intraroute:
@@ -869,49 +800,33 @@ class LocalSearch:
     # {{{ M5
     def move5(self):
         costSuppU = (
-            self.params.timeCost[self.node_u.prev.idx][self.node_v.idx]
-            + self.params.timeCost[self.node_v.idx][self.node_x.next.idx]
-            - self.params.timeCost[self.node_u.prev.idx][self.node_u.idx]
-            - self.params.timeCost[self.node_x.idx][self.node_x.next.idx]
+            self.inst.distances[self.node_u.prev.idx][self.node_v.idx]
+            + self.inst.distances[self.node_v.idx][self.node_x.next.idx]
+            - self.inst.distances[self.node_u.prev.idx][self.node_u.idx]
+            - self.inst.distances[self.node_x.idx][self.node_x.next.idx]
         )
 
         costSuppV = (
-            self.params.timeCost[self.node_v.prev.idx][self.node_u.idx]
-            + self.params.timeCost[self.node_x.idx][self.node_y.idx]
-            - self.params.timeCost[self.node_v.prev.idx][self.node_v.idx]
-            - self.params.timeCost[self.node_v.idx][self.node_y.idx]
+            self.inst.distances[self.node_v.prev.idx][self.node_u.idx]
+            + self.inst.distances[self.node_x.idx][self.node_y.idx]
+            - self.inst.distances[self.node_v.prev.idx][self.node_v.idx]
+            - self.inst.distances[self.node_v.idx][self.node_y.idx]
         )
 
         if not self.intraroute:
-            # Early move pruning to save CPU time. Guarantees that this move cannot improve without checking additional (load, duration...) constraints
+            # Early move pruning to save CPU time. Guarantees that this move cannot improve without checking load constraints
             if costSuppU + costSuppV >= self.route_u.penalty + self.route_v.penalty:
                 return False
 
             costSuppU += (
-                self.penaltyExcessDuration(
-                    self.route_u.duration
-                    + costSuppU
-                    - self.params.timeCost[self.node_u.idx][self.node_x.idx]
-                    + self.serviceV
-                    - self.serviceU
-                    - self.serviceX
-                )
-                + self.penaltyExcessLoad(
+                self.penaltyExcessLoad(
                     self.route_u.load + self.load_v - self.loud_u - self.load_x
                 )
                 - self.route_u.penalty
             )
 
             costSuppV += (
-                self.penaltyExcessDuration(
-                    self.route_v.duration
-                    + costSuppV
-                    + self.params.timeCost[self.node_u.idx][self.node_x.idx]
-                    - self.serviceV
-                    + self.serviceU
-                    + self.serviceX
-                )
-                + self.penaltyExcessLoad(
+                self.penaltyExcessLoad(
                     self.route_v.load + self.loud_u + self.load_x - self.load_v
                 )
                 - self.route_v.penalty
@@ -931,8 +846,8 @@ class LocalSearch:
         self.swapNode(self.node_u, self.node_v)
         self.insertNode(self.node_x, self.node_u)
 
-        self.numMoves += 1  # Increment move counter before updating route data
-        self.searchCompleted = False
+        self.num_moves += 1  # Increment move counter before updating route data
+        self.search_completed = False
         self.updateRouteData(self.route_u)
 
         if not self.intraroute:
@@ -945,21 +860,21 @@ class LocalSearch:
     # {{{ M6
     def move6(self):
         costSuppU = (
-            self.params.timeCost[self.node_u.prev.idx][self.node_v.idx]
-            + self.params.timeCost[self.node_y.idx][self.node_x.next.idx]
-            - self.params.timeCost[self.node_u.prev.idx][self.node_u.idx]
-            - self.params.timeCost[self.node_x.idx][self.node_x.next.idx]
+            self.inst.distances[self.node_u.prev.idx][self.node_v.idx]
+            + self.inst.distances[self.node_y.idx][self.node_x.next.idx]
+            - self.inst.distances[self.node_u.prev.idx][self.node_u.idx]
+            - self.inst.distances[self.node_x.idx][self.node_x.next.idx]
         )
 
         costSuppV = (
-            self.params.timeCost[self.node_v.prev.idx][self.node_u.idx]
-            + self.params.timeCost[self.node_x.idx][self.node_y.next.idx]
-            - self.params.timeCost[self.node_v.prev.idx][self.node_v.idx]
-            - self.params.timeCost[self.node_y.idx][self.node_y.next.idx]
+            self.inst.distances[self.node_v.prev.idx][self.node_u.idx]
+            + self.inst.distances[self.node_x.idx][self.node_y.next.idx]
+            - self.inst.distances[self.node_v.prev.idx][self.node_v.idx]
+            - self.inst.distances[self.node_y.idx][self.node_y.next.idx]
         )
 
         if not self.intraroute:
-            # Early move pruning to save CPU time. Guarantees that this move cannot improve without checking additional (load, duration...) constraints
+            # Early move pruning to save CPU time. Guarantees that this move cannot improve without checking additional load constraint
             if costSuppU + costSuppV >= self.route_u.penalty + self.route_v.penalty:
                 return False
 
@@ -1001,8 +916,8 @@ class LocalSearch:
         self.swapNode(self.node_u, self.node_v)
         self.swapNode(self.node_x, self.node_y)
 
-        self.numMoves += 1  # Increment move counter before updating route data
-        self.searchCompleted = False
+        self.num_moves += 1  # Increment move counter before updating route data
+        self.search_completed = False
         self.updateRouteData(self.route_u)
 
         if not self.intraroute:
@@ -1018,10 +933,10 @@ class LocalSearch:
             return False
 
         cost = (
-            self.params.timeCost[self.node_u.idx][self.node_v.idx]
-            + self.params.timeCost[self.node_x.idx][self.node_y.idx]
-            - self.params.timeCost[self.node_u.idx][self.node_x.idx]
-            - self.params.timeCost[self.node_v.idx][self.node_y.idx]
+            self.inst.distances[self.node_u.idx][self.node_v.idx]
+            + self.inst.distances[self.node_x.idx][self.node_y.idx]
+            - self.inst.distances[self.node_u.idx][self.node_x.idx]
+            - self.inst.distances[self.node_v.idx][self.node_y.idx]
             + self.node_v.cumulatedReversalDistance
             - self.node_x.cumulatedReversalDistance
         )
@@ -1047,8 +962,8 @@ class LocalSearch:
         self.node_u.next = self.node_v
         self.node_y.prev = self.node_x
 
-        self.numMoves += 1  # Increment move counter before updating route data
-        self.searchCompleted = False
+        self.num_moves += 1  # Increment move counter before updating route data
+        self.search_completed = False
         self.updateRouteData(self.route_u)
         return True
 
@@ -1057,10 +972,10 @@ class LocalSearch:
     # {{{ M8
     def move8(self):
         cost = (
-            self.params.timeCost[self.node_u.idx][self.node_v.idx]
-            + self.params.timeCost[self.node_x.idx][self.node_y.idx]
-            - self.params.timeCost[self.node_u.idx][self.node_x.idx]
-            - self.params.timeCost[self.node_v.idx][self.node_y.idx]
+            self.inst.distances[self.node_u.idx][self.node_v.idx]
+            + self.inst.distances[self.node_x.idx][self.node_y.idx]
+            - self.inst.distances[self.node_u.idx][self.node_x.idx]
+            - self.inst.distances[self.node_v.idx][self.node_y.idx]
             + self.node_v.cumulatedReversalDistance
             + self.route_u.reversalDistance
             - self.node_x.cumulatedReversalDistance
@@ -1068,35 +983,17 @@ class LocalSearch:
             - self.route_v.penalty
         )
 
-        # Early move pruning to save CPU time. Guarantees that this move cannot improve without checking additional (load, duration...) constraints
+        # Early move pruning to save CPU time. Guarantees that this move cannot improve without checking load constraints
         if cost >= 0:
             return False
 
-        cost += (
-            self.penaltyExcessDuration(
-                self.node_u.cumulatedTime
-                + self.node_v.cumulatedTime
-                + self.node_v.cumulatedReversalDistance
-                + self.params.timeCost[self.node_u.idx][self.node_v.idx]
-            )
-            + self.penaltyExcessDuration(
-                self.route_u.duration
-                - self.node_u.cumulatedTime
-                - self.params.timeCost[self.node_u.idx][self.node_x.idx]
-                + self.route_u.reversalDistance
-                - self.node_x.cumulatedReversalDistance
-                + self.route_v.duration
-                - self.node_v.cumulatedTime
-                - self.params.timeCost[self.node_v.idx][self.node_y.idx]
-                + self.params.timeCost[self.node_x.idx][self.node_y.idx]
-            )
-            + self.penaltyExcessLoad(self.node_u.cum_load + self.node_v.cum_load)
-            + self.penaltyExcessLoad(
-                self.route_u.load
-                + self.route_v.load
-                - self.node_u.cum_load
-                - self.node_v.cum_load
-            )
+        cost += self.penaltyExcessLoad(
+            self.node_u.cum_load + self.node_v.cum_load
+        ) + self.penaltyExcessLoad(
+            self.route_u.load
+            + self.route_v.load
+            - self.node_u.cum_load
+            - self.node_v.cum_load
         )
 
         if cost > -1e-3:
@@ -1150,8 +1047,8 @@ class LocalSearch:
             end_depot_u.prev = depot_vSuiv
             end_depot_u.prev.next = end_depot_u
 
-        self.numMoves += 1  # Increment move counter before updating route data
-        self.searchCompleted = False
+        self.num_moves += 1  # Increment move counter before updating route data
+        self.search_completed = False
         self.updateRouteData(self.route_u)
         self.updateRouteData(self.route_v)
         return True
@@ -1161,39 +1058,22 @@ class LocalSearch:
     # {{{ M9
     def move9(self):
         cost = (
-            self.params.timeCost[self.node_u.idx][self.node_y.idx]
-            + self.params.timeCost[self.node_v.idx][self.node_x.idx]
-            - self.params.timeCost[self.node_u.idx][self.node_x.idx]
-            - self.params.timeCost[self.node_v.idx][self.node_y.idx]
+            self.inst.distances[self.node_u.idx][self.node_y.idx]
+            + self.inst.distances[self.node_v.idx][self.node_x.idx]
+            - self.inst.distances[self.node_u.idx][self.node_x.idx]
+            - self.inst.distances[self.node_v.idx][self.node_y.idx]
             - self.route_u.penalty
             - self.route_v.penalty
         )
 
-        # Early move pruning to save CPU time. Guarantees that this move cannot improve without checking additional (load, duration...) constraints
+        # Early move pruning to save CPU time. Guarantees that this move cannot improve without checking load constraints
         if cost >= 0:
             return False
 
-        cost += (
-            self.penaltyExcessDuration(
-                self.node_u.cumulatedTime
-                + self.route_v.duration
-                - self.node_v.cumulatedTime
-                + self.params.timeCost[self.node_v.idx][self.node_y.idx]
-                - self.params.timeCost[self.node_u.idx][self.node_y.idx]
-            )
-            + self.penaltyExcessDuration(
-                self.route_u.duration
-                - self.node_u.cumulatedTime
-                - self.params.timeCost[self.node_u.idx][self.node_x.idx]
-                + self.node_v.cumulatedTime
-                + self.params.timeCost[self.node_v.idx][self.node_x.idx]
-            )
-            + self.penaltyExcessLoad(
-                self.node_u.cum_load + self.route_v.load - self.node_v.cum_load
-            )
-            + self.penaltyExcessLoad(
-                self.node_v.cum_load + self.route_u.load - self.node_u.cum_load
-            )
+        cost += self.penaltyExcessLoad(
+            self.node_u.cum_load + self.route_v.load - self.node_v.cum_load
+        ) + self.penaltyExcessLoad(
+            self.node_v.cum_load + self.route_u.load - self.node_u.cum_load
         )
 
         if cost > -1e-3:
@@ -1203,7 +1083,7 @@ class LocalSearch:
         depot_v = self.route_v.depot
         end_depot_u = depot_u.prev
         end_depot_v = depot_v.prev
-        depot_upred = end_depot_u.prev
+        depot_u_pred = end_depot_u.prev
 
         # Reassign route of node_y to routeU
         count = self.node_y
@@ -1231,13 +1111,16 @@ class LocalSearch:
         else:
             end_depot_u.prev = end_depot_v.prev
             end_depot_u.prev.next = end_depot_u
-            end_depot_v.prev = depot_upred
+            end_depot_v.prev = depot_u_pred
             end_depot_v.prev.next = end_depot_v
 
-        self.numMoves += 1  # Increment move counter before updating route data
-        self.searchCompleted = False
+        self.num_moves += 1  # Increment move counter before updating route data
+        self.search_completed = False
         self.updateRouteData(self.route_u)
         self.updateRouteData(self.route_v)
         return True
 
     # }}}
+
+    def penalty_excess_load(load):
+        return max(0, load - self.inst.vehicle_capacity) * self.capacity_penalty

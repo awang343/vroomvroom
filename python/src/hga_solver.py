@@ -1,3 +1,5 @@
+from hga_local import LocalSearch
+
 import numpy as np
 import copy
 import random
@@ -14,19 +16,21 @@ as [[route1], [route2], [route3], ..., [routen]]
 
 class HGASolver:
     # {{{ __init__
-    def __init__(
-        self,
-        inst,
-        params,
-    ):
+    def __init__(self, inst, params):
         self.inst = inst
         self.params = params
-        self.inst.init_neighbors(params.neighborhood_size)
+        self.capacity_penalty = self.inst.default_capacity_penalty
 
+        self.inst.initNeighbors(params.neighborhood_size)
+
+        self.local_searcher = LocalSearch(inst, params)
+
+        # Feasible heaps
         self.feasible_population = []
-        self.infeasible_population = []
-
         self.feasible_elites = []
+
+        # Infeasible heaps
+        self.infeasible_population = []
         self.infeasible_elites = []
     # }}}
 
@@ -178,8 +182,8 @@ class HGASolver:
         """
         Culls population down to mu individuals from mu+lambda
         """
-        if len(self.feasible_population) >= self.population_size + self.generation_size:
-            while len(self.feasible_population) > self.population_size:
+        if len(self.feasible_population) >= self.params.population_size + self.params.generation_size:
+            while len(self.feasible_population) > self.params.population_size:
                 # Pop from feasible population
                 heapq.heappop(self.feasible_population)
 
@@ -215,12 +219,14 @@ class HGASolver:
     # }}}
 
     def solve(self):
-        for it in range(self.population_size * 4):
+        for it in range(self.params.population_size * 4):
             print("Initial Generation Iteration:", it)
             self.make_random_solution()
 
             best_cost, best_routes = (
-                max(self.feasible_population) if self.feasible_population else (None, None)
+                max(self.feasible_population)
+                if self.feasible_population
+                else (None, None)
             )
             print(best_cost, best_routes)
         print("Population initialized")
@@ -239,11 +245,7 @@ class HGASolver:
                 else (None, None)
             )
 
-            if (
-                best_cost is None
-                or new_cost is None
-                or np.isclose(new_cost, best_cost)
-            ):
+            if best_cost is None or new_cost is None or np.isclose(new_cost, best_cost):
                 no_improvement += 1
             else:
                 best_cost, best_routes = new_cost, new_routes
