@@ -1,4 +1,5 @@
 from hga_local import LocalSearch
+from hga_split import Split
 
 import numpy as np
 import copy
@@ -23,7 +24,8 @@ class HGASolver:
 
         self.inst.initNeighbors(params.neighborhood_size)
 
-        self.local_searcher = LocalSearch(inst, params)
+        self.local_searcher = LocalSearch(self)
+        self.splitter = Split(self)
 
         # Feasible heaps
         self.feasible_population = []

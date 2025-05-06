@@ -3,9 +3,10 @@ from hga_structures import Node, Route, ThreeBestInsert
 
 class LocalSearch:
     # {{{ __init__
-    def __init__(self, instance, params):
-        self.inst = instance
-        self.params = params
+    def __init__(self, solver):
+        self.inst = solver.inst
+        self.params = solver.params
+        self.capacity_penalty_ls = 0 # To be set on each run
 
         self.customers = [Node() for _ in range(instance.num_customers)]
         self.routes = [Route() for _ in range(instance.num_vehicles)]
@@ -15,17 +16,17 @@ class LocalSearch:
         # Keep track of the three best insertion positions
         # for each customer in each route
         self.best_inserts = [
-            [ThreeBestInsert() for _ in range(instance.num_customers)]
-            for _ in range(instance.num_vehicles)
+            [ThreeBestInsert() for _ in range(self.inst.num_customers)]
+            for _ in range(self.inst.num_vehicles)
         ]
 
         # Initialize client nodes with index and depot
-        for i in range(instance.num_customers):
+        for i in range(self.inst.num_customers):
             self.customers[i].idx = i
             self.customers[i].is_depot = False
 
         # Initialize routes and depots
-        for i in range(instance.num_vehicles):
+        for i in range(self.inst.num_vehicles):
             self.routes[i].idx = i
             self.routes[i].depot = self.depots[i]
 
@@ -38,8 +39,8 @@ class LocalSearch:
             self.end_depots[i].route = self.routes[i]
 
         # Order vectors for heuristic use
-        self.order_nodes = list(range(1, instance.num_customers))
-        self.order_routes = list(range(instance.num_vehicles))
+        self.order_nodes = list(range(1, self.inst.num_customers))
+        self.order_routes = list(range(self.inst.num_vehicles))
 
         self.empty_routes = set()
 
