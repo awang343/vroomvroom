@@ -87,22 +87,22 @@ class Split:
       - potential[k][i], pred[k][i]: DP cost and predecessor index
     """
 
-    def __init__(self, params):
-        self.params = params
+    def __init__(self, inst):
+        self.inst = inst
         self.maxVehicles = 0
         # +1 so we can index from 1..nbClients
-        self.cliSplit = [ClientSplit() for _ in range(params.num_clients + 1)]
+        self.cliSplit = [ClientSplit() for _ in range(self.inst.num_customers + 1)]
 
-        self.sumDistance = [0.0]*(params.num_clients + 1)
-        self.sumLoad = [0.0]*(params.num_clients + 1)
-        self.sumService = [0.0]*(params.num_clients + 1)
+        self.sumDistance = [0.0]*(self.inst.num_customers + 1)
+        self.sumLoad = [0.0]*(self.inst.num_customers + 1)
+        self.sumService = [0.0]*(self.inst.num_customers + 1)
 
         # potential[k][i], pred[k][i]
         self.potential = [
-            [1.e30]*(params.num_clients + 1) for _ in range(params.num_vehicles + 1)
+            [1.e30]*(self.inst.num_customers + 1) for _ in range(self.inst.num_vehicles + 1)
         ]
         self.pred = [
-            [0]*(params.num_clients + 1) for _ in range(params.num_vehicles + 1)
+            [0]*(self.inst.num_customers + 1) for _ in range(self.inst.num_vehicles + 1)
         ]
 
     def split(self, indiv, num_max_vehicles):
@@ -114,16 +114,17 @@ class Split:
           or keep the logic consistent with C++ approach.
         """
         # As in the C++ method:
-        trivial_bound = math.ceil(self.params.totalDemand / self.params.vehicleCapacity)
+        trivial_bound = math.ceil(self.inst.totalDemand / self.inst.vehicle_capacity)
         self.maxVehicles = max(num_max_vehicles, trivial_bound)
 
         # Initialize cliSplit and prefix sums
-        for i in range(1, self.params.num_clients + 1):
+        for i in range(1, self.inst.num_clients + 1):
             cID = indiv.chromT[i - 1]
-            self.cliSplit[i].demand = self.params.cli[cID].demand
+            #TODO
+            self.cliSplit[i].demand = self.inst.cli[cID].demand
             
 
-            if i < self.params.num_clients:
+            if i < self.inst.num_clients:
                 nxt = indiv.chromT[i]
             else:
                 # (Mirroring the C++ sentinel -1.e30)
@@ -148,16 +149,16 @@ class Split:
         # Reinitialize all potential[] values
         self.potential[0][0] = 0.0
         for k in range(self.maxVehicles + 1):
-            for i in range(1, self.params.num_clients + 1):
+            for i in range(1, self.inst.num_clients + 1):
                 self.potential[k][i] = 1.e30
 
        
         # O(n) approach
         for k in range(self.maxVehicles):
-            queue = TrivialDeque(self.params.num_clients + 1, k)
+            queue = TrivialDeque(self.inst.num_clients + 1, k)
             queue.reset(k)  # Start from "client index" = k
 
-            for i in range(k + 1, self.params.num_clients + 1):
+            for i in range(k + 1, self.inst.num_clients + 1):
                 if queue.size() == 0:
                     break
                 front_idx = queue.get_front()
@@ -176,24 +177,27 @@ class Split:
                             self._propagate(queue.get_next_front(), i+1, k) - 1e-6:
                         queue.pop_front()
 
-        if self.potential[self.maxVehicles][self.params.num_clients] > 1.e29:
+        if self.potential[self.maxVehicles][self.inst.num_clients] > 1.e29:
+            raise Exception(
+                "ERROR : no Split solution has been propagated for the given instance."
+            )
             # "ERROR : no Split solution has been propagated..."
             # In the C++ code, it throws a string. We'll just treat as unsuccessful.
-            return 0
+            # return 0
 
         # Could be cheaper with fewer routes
-        minCost = self.potential[self.maxVehicles][self.params.num_clients]
+        minCost = self.potential[self.maxVehicles][self.inst.num_clients]
         nbRoutes = self.maxVehicles
         for kv in range(1, self.maxVehicles):
-            if self.potential[kv][self.params.num_clients] < minCost:
-                minCost = self.potential[kv][self.params.num_clients]
+            if self.potential[kv][self.inst.num_clients] < minCost:
+                minCost = self.potential[kv][self.inst.num_clients]
                 nbRoutes = kv
 
         # Rebuild solution
-        for k in range(self.params.num_vehicles - 1, nbRoutes - 1, -1):
+        for k in range(self.inst.num_vehicles - 1, nbRoutes - 1, -1):
             indiv.chromR[k].clear()
 
-        end = self.params.num_clients
+        end = self.inst.num_clients
         for route_idx in range(nbRoutes - 1, -1, -1):
             indiv.chromR[route_idx].clear()
             begin = self.pred[route_idx + 1][end]
@@ -221,10 +225,10 @@ class Split:
         cost_inbound = self.cliSplit[i + 1].d0_x  # cost from depot to i+1
         cost_outbound = self.cliSplit[j].dx_0     # cost from j back to depot
         load_diff = self.sumLoad[j] - self.sumLoad[i]
-        cap_excess = max(load_diff - self.params.vehicle_capacity, 0.0)
+        cap_excess = max(load_diff - self.inst.vehicle_capacity, 0.0)
 
         return base_cost + travel_distance + cost_inbound + cost_outbound \
-               + self.params.penalty_capacity * cap_excess
+               + self.inst.penalty_capacity * cap_excess
 
     def _dominates(self, i, j, k):
         """
@@ -238,7 +242,7 @@ class Split:
         lhs = self.potential[k][j] + self.cliSplit[j + 1].d0_x
         rhs = (self.potential[k][i] + self.cliSplit[i + 1].d0_x
                + (self.sumDistance[j + 1] - self.sumDistance[i + 1])
-               + self.params.penalty_capacity * (self.sumLoad[j] - self.sumLoad[i]))
+               + self.inst.penalty_capacity * (self.sumLoad[j] - self.sumLoad[i]))
         return lhs > rhs
 
     def _dominates_right(self, i, j, k):
