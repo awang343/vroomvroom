@@ -17,47 +17,17 @@ class HGASolver:
     def __init__(
         self,
         inst,
-        population_size=25,
-        generation_size=30,
-        education_prob=1.0,
-        repair_prob=0.5,
-        ri_granularity=0.4,
-        feasibility_target=0.2,
+        params,
     ):
         self.inst = inst
-        self.neighbors = self.inst.calc_neighbors(ri_granularity)
-        self.all_customers = tuple(c for c in range(1, self.inst.numCustomers))
-
-        self.population_size = population_size
-        self.generation_size = generation_size
-
-        self.education_prob = education_prob
-        self.repair_prob = repair_prob
-
-        self.feasibility_target = feasibility_target
-        self.capacity_penalty = self.calc_capacity_penalty() * 3
+        self.params = params
+        self.inst.init_neighbors(params.neighborhood_size)
 
         self.feasible_population = []
         self.infeasible_population = []
-        heapq.heapify(self.feasible_population)
-        heapq.heapify(self.infeasible_population)
 
         self.feasible_elites = []
         self.infeasible_elites = []
-        heapq.heapify(self.feasible_elites)
-        heapq.heapify(self.infeasible_elites)
-
-    def calc_capacity_penalty(self):
-        total_dist = 0
-        for i in range(1, self.inst.numCustomers):
-            for j in range(i, self.inst.numCustomers):
-                total_dist += self.inst.distances[i][j]
-        num_pairs = (len(self.all_customers) - 1) * (len(self.all_customers) - 2) / 2
-
-        avg_dist = total_dist / num_pairs
-        avg_demand = sum(self.inst.demandOfCustomer) / len(self.all_customers)
-        return avg_dist / avg_demand
-
     # }}}
 
     # {{{ make_random_solution

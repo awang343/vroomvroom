@@ -1,109 +1,64 @@
+from hga_structures import Customer
+from hga_circle import CircleSector
+
+import math
 import numpy as np
 import random
+from collections import defaultdict
 
 
 class VRPInstance:
-    # {{{ Initializer
-
     def __init__(self, file_name):
-        self.numCustomers = 0
-        self.numVehicles = 0
-        self.vehicleCapacity = 0
-        self.demandOfCustomer = []
-        self.xCoordOfCustomer = []
-        self.yCoordOfCustomer = []
+        self.num_customers = 0
+        self.num_vehicles = 0
+        self.vehicle_capacity = 0
+        self.customers = []
 
-        try:
-            with open(file_name, "r") as file:
-                # Reading the first line with basic parameters
-                first_line = file.readline().strip().split()
-                self.numCustomers = int(first_line[0])
-                self.numVehicles = int(first_line[1])
-                self.vehicleCapacity = int(first_line[2])
+        with open(file_name, "r") as file:
+            first_line = file.readline().strip().split()
+            self.num_customers = int(first_line[0])
+            self.num_vehicles = int(first_line[1])
+            self.vehicle_capacity = int(first_line[2])
 
-                # print(f"Number of customers: {self.numCustomers}")
-                # print(f"Number of vehicles: {self.numVehicles}")
-                # print(f"Vehicle capacity: {self.vehicleCapacity}")
+            # Reading the customer data
+            depot_line = file.readline().strip().split()
+            depot_x = float(line[1])
+            depot_y = float(line[1])
+            self.customers.append(depot_x, depot_y, 0, 0)
 
-                # Reading the customer data
-                for i in range(self.numCustomers):
-                    line = file.readline().strip().split()
-                    demand = int(line[0])
-                    xCoord = float(line[1])
-                    yCoord = float(line[2])
+            max_demand = 0
+            for i in range(1, self.num_customers):
+                line = file.readline().strip().split()
+                demand = int(line[0])
+                max_demand = max(max_demand, demand)
 
-                    self.demandOfCustomer.append(demand)
-                    self.xCoordOfCustomer.append(xCoord)
-                    self.yCoordOfCustomer.append(yCoord)
+                x_coord = float(line[1])
+                y_coord = float(line[2])
+                polar = positive_mod(
+                    32768.0
+                    * math.atan2(y_coord - depot_y, x_coord - depot_x)
+                    / math.pi
+                )
 
-        except FileNotFoundError:
-            print(f"Error: in VRPInstance() {file_name} - File not found")
-            exit(-1)
-        except Exception as e:
-            print(f"Error: {e}")
-            exit(-1)
+                self.customers.append(Client(x_coord, y_coord, demand, polar))
 
-        self.calc_distance_matrix()
-
-    def calc_distance_matrix(self):
-        x_coords = np.array(self.xCoordOfCustomer)
-        y_coords = np.array(self.yCoordOfCustomer)
+        x_coords = np.array(c.x for c in self.customers)
+        y_coords = np.array(c.y for c in self.customers)
 
         dx = x_coords[:, np.newaxis] - x_coords
         dy = y_coords[:, np.newaxis] - y_coords
 
         self.distances = np.sqrt(dx**2 + dy**2)
+        max_dist = np.max(self.distances)
 
-    # }}}
+        self.penalty_capacity = max_dist / max_demand
+        self.neighborhoods = {}
 
-    def calc_route_distance(self, route):
-        """
-        Calculates distance of a customer route
-        Assumes that input does not include depot
-        """
-        if not route:
-            return 0
-        return (
-            self.distances[0][route[0]]
-            + sum(self.distances[i][j] for i, j in zip(route, route[1:]))
-            + self.distances[route[-1]][0]
-        )
-
-    def calc_allocation(self, route):
-        """
-        Calculates the demand allocation to a given vehicle
-        """
-        return sum(self.demandOfCustomer[c] for c in route)
-
-    def calc_neighbors(self, h):
-        """
-        Returns a dictionary mapping each customer
-        to the hn closest neighbors
-        """
-
-        n = self.numCustomers
-        k = int(h * n)
-        neighbor_dict = {}
-
-        for i in range(1, n):
+    def init_neighbors(self, num_neighbors):
+        for i in range(1, self.num_customers):
             # Get the distances from node i to all others
-            distances = self.distances[i][1:]
+            distance_vec = self.distances[i][1:]
 
             # Get the indices of the k+1 smallest distances (including self at index i)
-            nearest = np.argsort(distances)[: k + 1] + 1
-            nearest = [int(j) for j in nearest if j != i][:k]
-
-            neighbor_dict[i] = nearest
-
-        return neighbor_dict
-
-    def calc_feasible(self, route):
-        return self.calc_allocation(route) <= self.vehicleCapacity
-    
-    def calc_cost(self, routes, penalty):
-        return sum(
-            self.calc_route_distance(route) for route in routes
-        ) + multiplier * sum(
-            max(0, self.calc_allocation(route) - self.vehicleCapacity)
-            for route in routes
-        )
+            nearest = np.argsort(distance_vec)[: k + 1] + 1
+            self.neighborhoods[i] = [int(j) for j in nearest if j != i][:k]
