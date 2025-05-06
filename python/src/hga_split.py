@@ -105,16 +105,18 @@ class Split:
 
     # }}}
 
-# {{{ split_simple
+    # {{{ split_simple
     def split_simple(self, indiv):
-        self.potential[0][0] = 0 # Minimum to reach the 0th customer with 0 vehicles
-        for i in range(1, self.inst.num_customers + 1):
-            self.potential[0][i] = float("inf")
+        self.potential[0][0] = 0  # Minimum cost to hit 0 customers with 0 vehicles
+        for i in range(1, self.inst.num_customers):
+            self.potential[0][i] = float(
+                "inf"
+            )  # Minimum cost to hit first i customers with 0 vehicles
 
         for i in range(self.inst.num_customers - 1):
             load = 0.0
             distance = 0.0
-            for j in range(i + 1, self.inst.num_customers + 1):
+            for j in range(i + 1, self.inst.num_customers):
                 load += self.splits[j].demand
                 distance += (
                     self.splits[j - 1].dnext if j > i + 1 else self.splits[j].ddepot
@@ -130,7 +132,7 @@ class Split:
                     self.potential[0][j] = self.potential[0][i] + cost
                     self.pred[0][j] = i
 
-        end = self.inst.num_customers - 1
+        end = self.inst.num_customers - 1  # Index of the last customer
         for k in range(self.inst.num_vehicles - 1, -1, -1):
             indiv.chromR[k] = []
 
@@ -141,9 +143,10 @@ class Split:
             end = begin
 
         return end == 0
-# }}}
 
-# {{{ split_lf
+    # }}}
+
+    # {{{ split_lf
     def split_lf(self, indiv):
         self.potential[0][0] = 0
         for k in range(self.inst.num_vehicles + 1):
@@ -157,15 +160,13 @@ class Split:
                 for j in range(i + 1, self.inst.num_customers):
                     load += self.splits[j].demand
                     distance += (
-                        self.splits[j - 1].dnext
-                        if j > i + 1
-                        else self.splits[j].d0_x
+                        self.splits[j - 1].dnext if j > i + 1 else self.splits[j].d0_x
                     )
                     cost = (
                         distance
                         + self.splits[j].dx_0
                         + self.solver.capacity_penalty
-                        * max(0.0, load - self.inst.vehicle_capacity])
+                        * max(0.0, load - self.inst.vehicle_capacity)
                     )
 
                     if self.potential[k][i] + cost < self.potential[k + 1][j]:
@@ -177,8 +178,8 @@ class Split:
         num_routes = self.inst.num_vehicles
 
         for k in range(1, self.inst.num_vehicles):
-            if self.potential[k][self.inst.num_customers-1] < min_cost:
-                min_cost = self.potential[k][self.inst.num_customers-1]
+            if self.potential[k][self.inst.num_customers - 1] < min_cost:
+                min_cost = self.potential[k][self.inst.num_customers - 1]
                 num_routes = k
 
         # Fill in chromR
@@ -193,7 +194,8 @@ class Split:
             end = begin
 
         return end == 0
-# }}}
+
+    # }}}
 
     def run(self, indiv):
         # Load in all the information from chromT
