@@ -27,7 +27,6 @@ class ClientSplit:
     """
     def __init__(self):
         self.demand = 0.0
-        self.serviceTime = 0.0
         self.d0_x = 0.0
         self.dx_0 = 0.0
         self.dnext = 0.0
