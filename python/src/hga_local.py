@@ -8,10 +8,10 @@ class LocalSearch:
         self.params = solver.params
         self.capacity_penalty_ls = 0 # To be set on each run
 
-        self.customers = [Node() for _ in range(instance.num_customers)]
-        self.routes = [Route() for _ in range(instance.num_vehicles)]
-        self.depots = [Node() for _ in range(instance.num_vehicles)]
-        self.end_depots = [Node() for _ in range(instance.num_vehicles)]
+        self.customers = [Node() for _ in range(self.inst.num_customers)]
+        self.routes = [Route() for _ in range(self.inst.num_vehicles)]
+        self.depots = [Node() for _ in range(self.inst.num_vehicles)]
+        self.end_depots = [Node() for _ in range(self.inst.num_vehicles)]
 
         # Keep track of the three best insertion positions
         # for each customer in each route
