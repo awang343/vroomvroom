@@ -34,6 +34,7 @@ class Population:
     def generatePopulation(self):
         max_iter = 4 * self.params.population_size
         for i in range(max_iter):
+            print("Initial Population:", i)
             # Create random individual
             indiv = Individual(self.solver)
             # Split into routes
@@ -135,15 +136,10 @@ class Population:
 
         # Cleanup references
         for indiv2 in pop:
-            toRemove = None
-            for dval, ref in indiv2.proximity_indivs:
-                if ref is removed:
-                    toRemove = (dval, ref)
+            for i, item in enumerate(indiv2.proximity_indivs):
+                if item[1] == removed:
+                    del indiv2.proximity_indivs[i]
                     break
-            if toRemove:
-                print(toRemove)
-                print(indiv2.proximity_indivs)
-                indiv2.proximity_indivs.remove(toRemove)
 
     def brokenPairsDistance(self, indiv1: Individual, indiv2: Individual) -> float:
         """Calculates the broken pairs distance between two individuals."""
