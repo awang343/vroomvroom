@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional
+import random
 
 
 @dataclass
@@ -80,7 +81,7 @@ class Individual:
         self.chromT = [i + 1 for i in range(instance.num_customers - 1)]
 
         # Shuffle chromT
-        random.shuffle(self.chromT, random=params.ran)
+        random.shuffle(self.chromT)
 
     def evaluateCompleteCost(self):
         self.eval = Evaluation()
