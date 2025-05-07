@@ -13,6 +13,12 @@ class AlgoParams:
     education_prob: float = 1.0
     repair_prob: float = 0.5
     feasibility_target: float = 0.2
+    
+    num_iter_until_penalty: int = 100
+    penalty_decrease = 0.85
+    penalty_increase = 1.2
+    num_iter = 20000
+    num_iter_traces = 500
 
 
 @dataclass

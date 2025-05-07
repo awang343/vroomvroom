@@ -7,7 +7,7 @@ class HGACrossover:
     def __init__(self, solver):
         self.solver = solver
         self.inst = solver.inst
-        self.splitter = Split(self.solver)
+        self.splitter = self.solver.splitter
 
     def crossover_ox(self, result, parent1, parent2):
         """
