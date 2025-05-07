@@ -8,8 +8,8 @@ import random
 
 @dataclass
 class AlgoParams:
-    population_size: int = 25
-    generation_size: int = 30
+    population_size: int = 1
+    generation_size: int = 5
     neighborhood_size: int = 20
     num_elite: int = 4
     num_close: int = 5
