@@ -32,19 +32,18 @@ class HGACrossover:
         while j % (self.inst.num_customers - 1) != (end + 1) % (
             self.inst.num_customers - 1
         ):
-            c = parent1.chromT[j % (self.inst.num_customers - 1)]
-            result.chromT[j % (self.inst.num_customers - 1)] = c
-            freq_customer[c] = True
+            result.chromT[j % (self.inst.num_customers - 1)] = parent1.chromT[
+                j % (self.inst.num_customers - 1)
+            ]
+            freq_customer[result.chromT[j % (self.inst.num_customers - 1)]] = True
             j += 1
 
         # Fill remaining slots from parent2
-        idx_offset = (end + 1) % (self.inst.num_customers - 1)
-        for _ in range(self.inst.num_customers):
-            c = parent2.chromT[idx_offset]
+        for i in range(1, self.inst.num_customers):
+            c = parent2.chromT[(end + i) % (self.inst.num_customers - 1)]
             if not freq_customer[c]:
-                result.chromT[j % self.inst.num_customers] = c
+                result.chromT[j % (self.inst.num_customers - 1)] = c
                 j += 1
-            idx_offset = (idx_offset + 1) % self.inst.num_customers
 
         # Convert the giant tour in 'result.chromT' into feasible routes
         self.splitter.run(result)

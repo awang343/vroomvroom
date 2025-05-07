@@ -235,26 +235,26 @@ class Population:
         )
 
         if (
-            fractionFeasibleLoad < self.params.feasibility_target - 0.05
-            and self.solver.penalty_capacity < 100000.0
+            fraction_feasible < self.params.feasibility_target - 0.05
+            and self.solver.capacity_penalty < 100000.0
         ):
-            self.solver.penalty_capacity = min(
-                self.solver.penalty_capacity * self.params.penalty_increase,
+            self.solver.capacity_penalty = min(
+                self.solver.capacity_penalty * self.params.penalty_increase,
                 100000.0,
             )
         elif (
-            fractionFeasibleLoad > self.params.feasibility_target + 0.05
-            and self.solver.penalty_capacity > 0.1
+            fraction_feasible > self.params.feasibility_target + 0.05
+            and self.solver.capacity_penalty > 0.1
         ):
-            self.solver.penalty_capacity = max(
-                self.params.penaltyCapacity * self.params.penalty_decrease, 0.1
+            self.solver.capacity_penalty = max(
+                self.solver.capacity_penalty * self.params.penalty_decrease, 0.1
             )
 
         # Update penalized cost for infeasible
         for indiv in self.infeasible_population:
             indiv.eval.penalized_cost = (
                 indiv.eval.distance
-                + self.solver.penalty_capacity * indiv.eval.capacity_excess
+                + self.solver.capacity_penalty * indiv.eval.capacity_excess
             )
 
         # Reorder via bubble sort for demonstration
