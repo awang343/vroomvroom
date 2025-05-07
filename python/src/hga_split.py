@@ -3,12 +3,14 @@ from dataclasses import dataclass
 
 
 # {{{ Data Structures
+@dataclass
 class CustomerSplit:
     demand: float = 0.0
     ddepot: float = 0.0  # Distance from this customer to depot
     dnext: float = 0.0  # Distance from this customer to next customer
 
 
+@dataclass
 class CustomDeque:
     def __init__(self, capacity: int, first_node: int):
         self.queue = [0] * capacity
@@ -38,7 +40,7 @@ class CustomDeque:
     def reset(self, first_node):
         self.index_front = 0
         self.index_back = 0
-        self.myDeque[0] = first_node
+        self.queue[0] = first_node
 
     def size(self):
         return self.index_back - self.index_front + 1
@@ -61,11 +63,13 @@ class Split:
             [float("inf")] * self.inst.num_customers
             for _ in range(self.inst.num_vehicles + 1)
         ]
+
+        # Index of predecessor in optimal path
         self.pred = [
             [0] * self.inst.num_customers for _ in range(self.inst.num_vehicles + 1)
         ]
-        self.sum_distance = [0.0] * self.inst.num_customers
-        self.sum_load = [0.0] * self.inst.num_customers
+        self.sum_distance = [0] * self.inst.num_customers
+        self.sum_load = [0] * self.inst.num_customers
 
     # {{{ Helpers
     def propagate(self, i, j, k):
@@ -76,7 +80,7 @@ class Split:
             + self.splits[i + 1].ddepot
             + self.splits[j].ddepot
             + self.solver.capacity_penalty
-            * max(self.sum_load[j] - self.sum_load[i] - self.inst.vehicle_capacity, 0.0)
+            * max(self.sum_load[j] - self.sum_load[i] - self.inst.vehicle_capacity, 0)
         )
 
     def dominates(self, i, j, k):
@@ -95,51 +99,8 @@ class Split:
             + self.splits[i + 1].ddepot
             + self.sum_distance[j + 1]
             - self.sum_distance[i + 1]
-            + 1e-6
+            + 1e-3
         )
-
-    # }}}
-
-    # {{{ split_simple
-    def split_simple(self, indiv):
-        self.potential[0][0] = 0  # Minimum cost to hit 0 customers with 0 vehicles
-        for i in range(1, self.inst.num_customers):
-            # Minimum cost to hit first i customers with 0 vehicles
-            self.potential[0][i] = float("inf")
-
-        queue = CustomDeque(self.inst.num_customers, 0)
-
-        for i in range(1, self.inst.num_customers):
-            # The front is the best predecessor for i
-            self.potential[0][i] = self.propagate(queue.get_front(), i, 0)
-            self.pred[0][i] = queue.get_front()
-
-            if i < self.inst.num_customers - 1:
-                # If i is not dominated by the last of the queue
-                if not self.dominates(queue.get_back(), i, 0):
-                    # Remove from back any elements dominated by i
-                    while queue.size() > 0 and self.dominates_right(
-                        queue.get_back(), i, 0
-                    ):
-                        queue.pop_back()
-                    queue.push_back(i)
-
-                # Check if front is still the best for i+1
-                while (
-                    queue.size() > 0
-                    and self.propagate(queue.get_front(), i + 1, 0)
-                    > self.propagate(queue.get_next_front(), i + 1, 0) - 1e-3
-                ):
-                    queue.pop_front()
-
-        end = self.inst.num_customers - 1  # Index of the last customer
-
-        for k in range(self.inst.num_vehicles - 1, -1, -1):
-            begin = self.pred[0][end]
-            indiv.chromR[k] = indiv.chromT[begin:end]
-            end = begin
-
-        return end == 0
 
     # }}}
 
@@ -150,8 +111,9 @@ class Split:
             for i in range(1, self.inst.num_customers):
                 self.potential[k][i] = float("inf")
 
-        queue = CustomDeque(self.inst.num_customers, k)
+        queue = CustomDeque(self.inst.num_customers, 0)
         for k in range(self.inst.num_vehicles):
+            # k+1 is the number of vehicles we are testing
             queue.reset(k)
 
             for i in range(k + 1, self.inst.num_customers):
@@ -193,7 +155,7 @@ class Split:
         end = self.inst.num_customers - 1
 
         for k in range(num_routes - 1, -1, -1):
-            begin = self.pred[0][end]
+            begin = self.pred[k+1][end]
             indiv.chromR[k] = indiv.chromT[begin:end]
             end = begin
 
@@ -205,25 +167,21 @@ class Split:
         # Load in all the information from chromT
         for i in range(1, self.inst.num_customers):
             customer = indiv.chromT[i - 1]
-            next_customer = indiv.chromT[i]
 
             self.splits[i].demand = self.inst.customers[customer].demand
             self.splits[i].depot_dist = self.inst.distances[0][customer]
 
             # Set distance to next customer to negative infinity at the end
             self.splits[i].dnext = (
-                self.inst.distances[customer][next_customer]
+                self.inst.distances[customer][indiv.chromT[i]]
                 if i < self.inst.num_customers - 1
                 else -1e30
             )
 
             self.sum_load[i] = self.sum_load[i - 1] + self.splits[i].demand
-            self.sum_distance[i] = (
-                self.sum_distance[i - 1] + self.inst.splits[i - 1].dnext
-            )
+            self.sum_distance[i] = self.sum_distance[i - 1] + self.splits[i - 1].dnext
 
         # Perform splitting
-        if not self.split_simple(indiv):
-            self.split_lf(indiv)
+        self.split_lf(indiv)
 
-        indiv.evaluate_complete_cost()
+        indiv.evaluateCompleteCost()

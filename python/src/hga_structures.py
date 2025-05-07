@@ -67,18 +67,19 @@ class Evaluation:
 
 
 class Individual:
-    def __init__(self, instance):
-        self.inst = instance
+    def __init__(self, solver):
+        self.solver = solver
+        self.inst = solver.inst
         self.eval = Evaluation()
 
-        self.successors = [0] * (instance.num_customers)
-        self.predecessors = [0] * (instance.num_customers)
+        self.successors = [0] * (self.inst.num_customers)
+        self.predecessors = [0] * (self.inst.num_customers)
 
         # chromR represents the solution as a list of routes
-        self.chromR = [[] for _ in range(instance.num_vehicles)]
+        self.chromR = [[] for _ in range(self.inst.num_vehicles)]
 
         # chromT represents the uncut list of customers before route assignment
-        self.chromT = [i + 1 for i in range(instance.num_customers - 1)]
+        self.chromT = [i + 1 for i in range(self.inst.num_customers - 1)]
 
         # Shuffle chromT
         random.shuffle(self.chromT)
@@ -96,7 +97,7 @@ class Individual:
             distance = (
                 self.inst.distances[0][route[0]] + self.inst.distances[route[-1]][0]
             )
-            load = self.inst.clients[route[0]].demand
+            load = self.inst.customers[route[0]].demand
 
             self.predecessors[route[0]] = 0
             self.successors[route[-1]] = 0
@@ -113,7 +114,7 @@ class Individual:
             self.eval.capacity_excess += max(0, load - self.inst.vehicle_capacity)
 
         self.eval.penalizedCost = (
-            self.eval.distance + self.eval.capacity_excess * self.inst.capacity_penalty
+            self.eval.distance + self.eval.capacity_excess * self.solver.capacity_penalty
         )
         self.eval.is_feasible = self.eval.capacity_excess < 1e-3
 
