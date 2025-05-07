@@ -1,4 +1,7 @@
-from hga_structures import Node, Route, ThreeBestInsert
+from hga_structures import Node, Route, ThreeBestInsert, SwapStarElement
+from hga_circle import CircleSector
+import math
+import random
 
 
 class LocalSearch:
@@ -6,7 +9,7 @@ class LocalSearch:
     def __init__(self, solver):
         self.inst = solver.inst
         self.params = solver.params
-        self.capacity_penalty_ls = 0 # To be set on each run
+        self.capacity_penalty_ls = 0  # To be set on each run
 
         self.customers = [Node() for _ in range(self.inst.num_customers)]
         self.routes = [Route() for _ in range(self.inst.num_vehicles)]
@@ -67,14 +70,14 @@ class LocalSearch:
                 self.search_completed = True
 
             # CLASSICAL ROUTE IMPROVEMENT (RI) MOVES IN NEIGHBORHOOD
-            for pos_u in range(self.inst.num_customers):
-                self.node_u = self.clients[self.order_nodes[pos_u]]
+            for pos_u in range(self.inst.num_customers - 1):
+                self.node_u = self.customers[self.order_nodes[pos_u]]
                 last_test_RI_node_u = self.node_u.last_tested_RI
                 self.node_u.last_tested_RI = self.num_moves
 
-                for pos_v in range(len(self.inst.neighborhood[self.node_u.idx])):
+                for pos_v in range(len(self.inst.neighborhoods[self.node_u.idx])):
                     self.node_v = self.customers[
-                        self.inst.neighborhood[self.node_u.idx][pos_v]
+                        self.inst.neighborhoods[self.node_u.idx][pos_v]
                     ]
 
                     if (
@@ -125,7 +128,7 @@ class LocalSearch:
 
                 # MOVES INVOLVING AN EMPTY ROUTE
                 if self.loop_id > 0 and self.empty_routes:
-                    self.node_v = self.routes[self.empty_routes.pop(0)].depot
+                    self.node_v = self.routes[self.empty_routes.pop()].depot
                     self.setLocalVariables()
                     if self.move1():
                         continue  # RELOCATE
@@ -145,8 +148,8 @@ class LocalSearch:
                 for rV in range(self.inst.num_vehicles):
                     self.route_v = self.routes[self.order_routes[rV]]
                     if (
-                        self.route_u.nbCustomers > 0
-                        and self.route_v.nbCustomers > 0
+                        self.route_u.num_customers > 0
+                        and self.route_v.num_customers > 0
                         and self.route_u.idx < self.route_v.idx
                     ):
                         if (
@@ -180,14 +183,14 @@ class LocalSearch:
             route_ls = self.routes[r]
 
             # Connect the depot start and end
-            start_depot_ls.prev = end_depot
-            end_depot_ls.next = start_depot
+            start_depot_ls.prev = end_depot_ls
+            end_depot_ls.next = start_depot_ls
 
             route_indiv = indiv.chromR[r]
             if route_indiv:  # Route in individual is not empty
                 # Transfer customer info to LS
-                customer_ls = self.customers_ls[route_indiv[0]]
-                customer_ls.route = route
+                customer_ls = self.customers[route_indiv[0]]
+                customer_ls.route = route_ls
                 customer_ls.prev = start_depot_ls
                 start_depot_ls.next = customer_ls
 
@@ -209,17 +212,20 @@ class LocalSearch:
             route_ls.last_tested_SWAP = -1
 
             # Reset insertion memory for this route
-            for i in range(1, self.inst.num_customers + 1):
-                self.best_insert_client[r][i].last_calculated = -1
+            for i in range(1, self.inst.num_customers):
+                self.best_inserts[r][i].last_calculated = -1
 
         # Reset RI test memory for all clients
-        for i in range(1, self.inst.num_customers + 1):
+        for i in range(1, self.inst.num_customers):
             self.customers[i].last_tested_RI = -1
 
     # }}}
 
     # {{{ Variable Aliasing
     def setLocalVariables(self):
+        self.node_x = self.node_u.next
+        self.node_y = self.node_v.next
+
         self.route_u = self.node_u.route
         self.route_v = self.node_v.route
         self.load_u = self.inst.customers[self.node_u.idx].demand
@@ -227,21 +233,22 @@ class LocalSearch:
         self.load_v = self.inst.customers[self.node_v.idx].demand
         self.load_y = self.inst.customers[self.node_y.idx].demand
         self.intraroute = self.route_u == self.route_v
+
     # }}}
 
     # {{{ exportIndividual
     def exportIndividual(self, indiv):
         # Create a list of (polar angle, route index) tuples
-        routePolarAngles = [
-            (self.routes[r].polarAngleBarycenter, r)
+        route_polar_angles = [
+            (self.routes[r].polar_angle_barycenter, r)
             for r in range(self.inst.num_vehicles)
         ]
 
         # Sort routes by polar angle (empty routes have 1e30, so they go to the end)
-        routePolarAngles.sort()
+        route_polar_angles.sort()
 
         pos = 0
-        for _, route_index in routePolarAngles:
+        for _, route_index in route_polar_angles:
             indiv.chromR[route_index].clear()
             node = self.depots[route_index].next
             while not node.is_depot:
@@ -292,13 +299,13 @@ class LocalSearch:
                 - self.inst.distances[prev_idx][node.idx]
             )
 
-            mynode.cum_load = load
-            mynode.cum_time = time
-            mynode.cum_reversal_distance = reversal_distance
+            node.cum_load = load
+            node.cum_time = time
+            node.cum_reversal_distance = reversal_distance
 
             if not node.is_depot:
-                cum_x += customer.coordX
-                cum_y += customer.coordY
+                cum_x += customer.x
+                cum_y += customer.y
                 if do:
                     route_ls.sector.initialize(customer.polar)
                 else:
@@ -307,8 +314,8 @@ class LocalSearch:
             do = False
 
         route_ls.load = load
-        route_ls.penalty = self.penaltyExcessLoad(load)
-        route_ls.num_customers = myplace - 1
+        route_ls.penalty = self.calc_penalty(load)
+        route_ls.num_customers = place - 1
         route_ls.reversal_distance = reversal_distance
         route_ls.last_modified = self.num_moves
 
@@ -373,7 +380,7 @@ class LocalSearch:
         U = R1.depot.next
         while not U.is_depot:
             # Compute delta removal cost
-            U.deltaRemoval = (
+            U.delta_removal = (
                 self.inst.distances[U.prev.idx][U.next.idx]
                 - self.inst.distances[U.prev.idx][U.idx]
                 - self.inst.distances[U.idx][U.next.idx]
@@ -388,17 +395,16 @@ class LocalSearch:
                     + self.inst.distances[U.idx][R2.depot.next.idx]
                     - self.inst.distances[0][R2.depot.next.idx]
                 )
-                self.best_inserts[R2.idx][U.idx].bestCost[0] = initial_cost
-                self.best_inserts[R2.idx][U.idx].bestLocation[0] = R2.depot
+                self.best_inserts[R2.idx][U.idx].best[0] = (initial_cost, R2.depot)
 
                 V = R2.depot.next
                 while not V.is_depot:
-                    deltaCost = (
+                    delta_cost = (
                         self.inst.distances[V.idx][U.idx]
                         + self.inst.distances[U.idx][V.next.idx]
                         - self.inst.distances[V.idx][V.next.idx]
                     )
-                    self.best_inserts[R2.idx][U.idx].compareAndAdd(deltaCost, V)
+                    self.best_inserts[R2.idx][U.idx].compare_and_add(delta_cost, V)
                     V = V.next
 
             U = U.next
@@ -407,42 +413,39 @@ class LocalSearch:
 
     # {{{ getCheapestInsertSimultRemoval
     def getCheapestInsertSimultRemoval(self, U, V):
-        myBestInsert = self.best_inserts[V.route.idx][U.idx]
+        best_insert = self.best_inserts[V.route.idx][U.idx]
         found = False
-        bestPosition = myBestInsert.bestLocation[0]
-        bestCost = myBestInsert.bestCost[0]
+        best_cost, best_position = best_insert.best[0]
 
         # Check if the best position isn't adjacent to V
-        if bestPosition != V and bestPosition.next != V:
+        if best_position != V and best_position.next != V:
             found = True
-        elif myBestInsert.bestLocation[1] is not None:
-            bestPosition = myBestInsert.bestLocation[1]
-            bestCost = myBestInsert.bestCost[1]
-            if bestPosition != V and bestPosition.next != V:
+        elif best_insert.best[1][1] is not None:
+            best_cost, best_position = best_insert.best[1]
+            if best_position != V and best_position.next != V:
                 found = True
-            elif myBestInsert.bestLocation[2] is not None:
-                bestPosition = myBestInsert.bestLocation[2]
-                bestCost = myBestInsert.bestCost[2]
+            elif best_insert.best[2][1] is not None:
+                best_cost, best_position = best_insert.best[2]
                 found = True
 
         # Evaluate inserting in place of V
-        deltaCost = (
+        delta_cost = (
             self.inst.distances[V.prev.idx][U.idx]
             + self.inst.distances[U.idx][V.next.idx]
             - self.inst.distances[V.prev.idx][V.next.idx]
         )
 
-        if not found or deltaCost < bestCost:
-            bestPosition = V.prev
-            bestCost = deltaCost
+        if not found or delta_cost < best_cost:
+            best_position = V.prev
+            best_cost = delta_cost
 
-        return bestCost, bestPosition
+        return best_cost, best_position
 
     # }}}
 
     # {{{ swapStar
     def swapStar(self):
-        myBestSwapStar = SwapStarElement()
+        best_swap_star = SwapStarElement()
 
         # Preprocess insertion costs
         self.preprocessInsertions(self.route_u, self.route_v)
@@ -453,16 +456,16 @@ class LocalSearch:
         while not node_u.is_depot:
             node_v = self.route_v.depot.next
             while not node_v.is_depot:
-                deltaPenRouteU = (
-                    penaltyExcessLoad(
+                delta_pen_route_U = (
+                    self.calc_penalty(
                         self.route_u.load
                         + self.inst.customers[node_v.idx].demand
                         - self.inst.customers[node_u.idx].demand
                     )
                     - self.route_u.penalty
                 )
-                deltaPenRouteV = (
-                    penaltyExcessLoad(
+                delta_pen_route_V = (
+                    self.calc_penalty(
                         self.route_v.load
                         + self.inst.customers[node_u.idx].demand
                         - self.inst.customers[node_v.idx].demand
@@ -471,34 +474,34 @@ class LocalSearch:
                 )
 
                 if (
-                    deltaPenRouteU
-                    + node_u.deltaRemoval
-                    + deltaPenRouteV
-                    + node_v.deltaRemoval
+                    delta_pen_route_U
+                    + node_u.delta_removal
+                    + delta_pen_route_V
+                    + node_v.delta_removal
                     <= 0
                 ):
-                    mySwapStar = SwapStarElement()
-                    mySwapStar.U = node_u
-                    mySwapStar.V = node_v
+                    swap_star = SwapStarElement()
+                    swap_star.U = node_u
+                    swap_star.V = node_v
 
-                    extraV, mySwapStar.bestPositionU = (
+                    extra_V, swap_star.best_position_U = (
                         self.getCheapestInsertSimultRemoval(node_u, node_v)
                     )
-                    extraU, mySwapStar.bestPositionV = (
+                    extra_U, swap_star.best_position_V = (
                         self.getCheapestInsertSimultRemoval(node_v, node_u)
                     )
 
-                    mySwapStar.moveCost = (
-                        deltaPenRouteU
-                        + node_u.deltaRemoval
-                        + extraU
-                        + deltaPenRouteV
-                        + node_v.deltaRemoval
-                        + extraV
+                    swap_star.move_cost = (
+                        delta_pen_route_U
+                        + node_u.delta_removal
+                        + extra_U
+                        + delta_pen_route_V
+                        + node_v.delta_removal
+                        + extra_V
                     )
 
-                    if mySwapStar.moveCost < myBestSwapStar.moveCost:
-                        myBestSwapStar = mySwapStar
+                    if swap_star.move_cost < best_swap_star.move_cost:
+                        best_swap_star = swap_star
 
                 node_v = node_v.next
             node_u = node_u.next
@@ -506,80 +509,82 @@ class LocalSearch:
         # Try RELOCATE from routeU to routeV
         node_u = self.route_u.depot.next
         while not node_u.is_depot:
-            mySwapStar = SwapStarElement()
-            mySwapStar.U = node_u
-            mySwapStar.bestPositionU = self.best_inserts[self.route_v.idx][
+            swap_star = SwapStarElement()
+            swap_star.U = node_u
+            swap_star.best_position_U = self.best_inserts[self.route_v.idx][
                 node_u.idx
-            ].bestLocation[0]
-            deltaDistRouteU = (
+            ].best[0][1]
+
+            delta_dist_route_U = (
                 self.inst.distances[node_u.prev.idx][node_u.next.idx]
                 - self.inst.distances[node_u.prev.idx][node_u.idx]
                 - self.inst.distances[node_u.idx][node_u.next.idx]
             )
-            deltaDistRouteV = self.best_inserts[self.route_v.idx][node_u.idx].bestCost[
+            delta_dist_route_V = self.best_inserts[self.route_v.idx][node_u.idx].best[
                 0
-            ]
+            ][0]
 
-            mySwapStar.moveCost = (
-                deltaDistRouteU
-                + deltaDistRouteV
-                + penaltyExcessLoad(
+            swap_star.move_cost = (
+                delta_dist_route_U
+                + delta_dist_route_V
+                + self.calc_penalty(
                     self.route_u.load - self.inst.customers[node_u.idx].demand
                 )
                 - self.route_u.penalty
-                + penaltyExcessLoad(
+                + self.calc_penalty(
                     self.route_v.load + self.inst.customers[node_u.idx].demand
                 )
                 - self.route_v.penalty
             )
 
-            if mySwapStar.moveCost < myBestSwapStar.moveCost:
-                myBestSwapStar = mySwapStar
+            if swap_star.move_cost < best_swap_star.move_cost:
+                best_swap_star = swap_star
 
             node_u = node_u.next
 
         # Try RELOCATE from routeV to routeU
         node_v = self.route_v.depot.next
         while not node_v.is_depot:
-            mySwapStar = SwapStarElement()
-            mySwapStar.V = node_v
-            mySwapStar.bestPositionV = self.best_inserts[self.route_u.idx][
+            swap_star = SwapStarElement()
+            swap_star.V = node_v
+            swap_star.best_position_V = self.best_inserts[self.route_u.idx][
                 node_v.idx
-            ].bestLocation[0]
-            deltaDistRouteU = self.best_inserts[self.route_u.idx][node_v.idx].bestCost[
+            ].best[0][1]
+            delta_dist_route_U = self.best_inserts[self.route_u.idx][node_v.idx].best[
                 0
-            ]
-            deltaDistRouteV = (
+            ][0]
+
+            delta_dist_route_V = (
                 self.inst.distances[node_v.prev.idx][node_v.next.idx]
                 - self.inst.distances[node_v.prev.idx][node_v.idx]
                 - self.inst.distances[node_v.idx][node_v.next.idx]
             )
 
-            mySwapStar.moveCost = (
-                deltaDistRouteU
-                + deltaDistRouteV
-                + penaltyExcessLoad(
+            swap_star.move_cost = (
+                delta_dist_route_U
+                + delta_dist_route_V
+                + self.calc_penalty(
                     self.route_u.load + self.inst.customers[node_v.idx].demand
                 )
                 - self.route_u.penalty
-                + penaltyExcessLoad(
+                + self.calc_penalty(
                     self.route_v.load - self.inst.customers[node_v.idx].demand
                 )
                 - self.route_v.penalty
             )
 
-            if mySwapStar.moveCost < myBestSwapStar.moveCost:
-                myBestSwapStar = mySwapStar
+            if swap_star.move_cost < best_swap_star.move_cost:
+                best_swap_star = swap_star
 
             node_v = node_v.next
 
-        if myBestSwapStar.moveCost > -1e-3:
+        if best_swap_star.move_cost > -1e-3:
             return False
 
-        if myBestSwapStar.bestPositionU is not None:
-            self.insertNode(myBestSwapStar.U, myBestSwapStar.bestPositionU)
-        if myBestSwapStar.bestPositionV is not None:
-            self.insertNode(myBestSwapStar.V, myBestSwapStar.bestPositionV)
+        if best_swap_star.best_position_U is not None:
+            self.insertNode(best_swap_star.U, best_swap_star.best_position_U)
+        if best_swap_star.best_position_V is not None:
+            self.insertNode(best_swap_star.V, best_swap_star.best_position_V)
 
         self.num_moves += 1
         self.search_completed = False
@@ -610,12 +615,12 @@ class LocalSearch:
                 return False
 
             costSuppU += (
-                +self.penaltyExcessLoad(self.route_u.load - self.loud_u)
+                +self.calc_penalty(self.route_u.load - self.load_u)
                 - self.route_u.penalty
             )
 
             costSuppV += (
-                +self.penaltyExcessLoad(self.route_v.load + self.loud_u)
+                +self.calc_penalty(self.route_v.load + self.load_u)
                 - self.route_v.penalty
             )
 
@@ -657,12 +662,12 @@ class LocalSearch:
                 return False
 
             costSuppU += (
-                self.penaltyExcessLoad(self.route_u.load - self.loud_u - self.load_x)
+                self.calc_penalty(self.route_u.load - self.load_u - self.load_x)
                 - self.route_u.penalty
             )
 
             costSuppV += (
-                self.penaltyExcessLoad(self.route_v.load + self.loud_u + self.load_x)
+                self.calc_penalty(self.route_v.load + self.load_u + self.load_x)
                 - self.route_v.penalty
             )
 
@@ -712,12 +717,12 @@ class LocalSearch:
                 return False
 
             costSuppU += (
-                self.penaltyExcessLoad(self.route_u.load - self.loud_u - self.load_x)
+                self.calc_penalty(self.route_u.load - self.load_u - self.load_x)
                 - self.route_u.penalty
             )
 
             costSuppV += (
-                self.penaltyExcessLoad(self.route_v.load + self.loud_u + self.load_x)
+                self.calc_penalty(self.route_v.load + self.load_u + self.load_x)
                 - self.route_v.penalty
             )
 
@@ -767,12 +772,12 @@ class LocalSearch:
                 return False
 
             costSuppU += (
-                self.penaltyExcessLoad(self.route_u.load + self.load_v - self.loud_u)
+                self.calc_penalty(self.route_u.load + self.load_v - self.load_u)
                 - self.route_u.penalty
             )
 
             costSuppV += (
-                self.penaltyExcessLoad(self.route_v.load + self.loud_u - self.load_v)
+                self.calc_penalty(self.route_v.load + self.load_u - self.load_v)
                 - self.route_v.penalty
             )
 
@@ -820,15 +825,15 @@ class LocalSearch:
                 return False
 
             costSuppU += (
-                self.penaltyExcessLoad(
-                    self.route_u.load + self.load_v - self.loud_u - self.load_x
+                self.calc_penalty(
+                    self.route_u.load + self.load_v - self.load_u - self.load_x
                 )
                 - self.route_u.penalty
             )
 
             costSuppV += (
-                self.penaltyExcessLoad(
-                    self.route_v.load + self.loud_u + self.load_x - self.load_v
+                self.calc_penalty(
+                    self.route_v.load + self.load_u + self.load_x - self.load_v
                 )
                 - self.route_v.penalty
             )
@@ -880,7 +885,7 @@ class LocalSearch:
                 return False
 
             costSuppU += (
-                self.penaltyExcessLoad(
+                self.calc_penalty(
                     self.route_u.load
                     + self.load_v
                     + self.load_y
@@ -891,12 +896,12 @@ class LocalSearch:
             )
 
             costSuppV += (
-                self.penaltyExcessLoad(
+                self.calc_penalty(
                     self.route_v.load
-                    + self.loud_u
+                    + self.load_u
                     + self.load_x
                     - self.load_v
-                    - self.loadY
+                    - self.load_y
                 )
                 - self.route_v.penalty
             )
@@ -938,8 +943,8 @@ class LocalSearch:
             + self.inst.distances[self.node_x.idx][self.node_y.idx]
             - self.inst.distances[self.node_u.idx][self.node_x.idx]
             - self.inst.distances[self.node_v.idx][self.node_y.idx]
-            + self.node_v.cumulatedReversalDistance
-            - self.node_x.cumulatedReversalDistance
+            + self.node_v.cum_reversal_distance
+            - self.node_x.cum_reversal_distance
         )
 
         if cost > -1e-3:
@@ -977,9 +982,9 @@ class LocalSearch:
             + self.inst.distances[self.node_x.idx][self.node_y.idx]
             - self.inst.distances[self.node_u.idx][self.node_x.idx]
             - self.inst.distances[self.node_v.idx][self.node_y.idx]
-            + self.node_v.cumulatedReversalDistance
-            + self.route_u.reversalDistance
-            - self.node_x.cumulatedReversalDistance
+            + self.node_v.cum_reversal_distance
+            + self.route_u.reversal_distance
+            - self.node_x.cum_reversal_distance
             - self.route_u.penalty
             - self.route_v.penalty
         )
@@ -988,9 +993,9 @@ class LocalSearch:
         if cost >= 0:
             return False
 
-        cost += self.penaltyExcessLoad(
+        cost += self.calc_penalty(
             self.node_u.cum_load + self.node_v.cum_load
-        ) + self.penaltyExcessLoad(
+        ) + self.calc_penalty(
             self.route_u.load
             + self.route_v.load
             - self.node_u.cum_load
@@ -1071,9 +1076,9 @@ class LocalSearch:
         if cost >= 0:
             return False
 
-        cost += self.penaltyExcessLoad(
+        cost += self.calc_penalty(
             self.node_u.cum_load + self.route_v.load - self.node_v.cum_load
-        ) + self.penaltyExcessLoad(
+        ) + self.calc_penalty(
             self.node_v.cum_load + self.route_u.load - self.node_u.cum_load
         )
 
@@ -1123,5 +1128,5 @@ class LocalSearch:
 
     # }}}
 
-    def penalty_excess_load(load):
+    def calc_penalty(self, load):
         return max(0, load - self.inst.vehicle_capacity) * self.capacity_penalty

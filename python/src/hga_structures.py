@@ -1,5 +1,8 @@
+from hga_circle import CircleSector
+
 from dataclasses import dataclass
 from typing import Optional
+from sortedcontainers import SortedList
 import random
 
 
@@ -13,12 +16,12 @@ class AlgoParams:
     education_prob: float = 1.0
     repair_prob: float = 0.5
     feasibility_target: float = 0.2
-    
+
     num_iter_until_penalty: int = 100
-    penalty_decrease = 0.85
-    penalty_increase = 1.2
-    num_iter = 20000
-    num_iter_traces = 500
+    penalty_decrease: float = 0.85
+    penalty_increase: float = 1.2
+    num_iter: int = 20000
+    num_iter_traces: int = 500
 
 
 @dataclass
@@ -36,9 +39,9 @@ class Node:
     is_depot: bool = False  # Whether the node is a depot
     position: int = -1  # Position in the route
     last_tested_RI: int = -1  # Last time RI move was tested
-    next: Optional['Node'] = None  # Next node in the route
-    prev: Optional['Node'] = None  # Previous node in the route
-    route: Optional['Node'] = None  # Reference to the associated route
+    next: Optional["Node"] = None  # Next node in the route
+    prev: Optional["Node"] = None  # Previous node in the route
+    route: Optional["Node"] = None  # Reference to the associated route
 
     cum_load: float = 0.0  # Cumulative load until this node
     cum_dist: float = 0.0  # Cumulative dist until this node
@@ -60,7 +63,7 @@ class Route:
     reversal_distance: float = 0.0  # Cost change if route reversed
     penalty: float = 0.0  # Load + duration penalties
     polar_angle_barycenter: float = 0.0  # Polar angle of barycenter
-    sector = None  # Placeholder for CircleSector object
+    sector = CircleSector()  # CircleSector object
 
 
 @dataclass
@@ -72,6 +75,15 @@ class Evaluation:
     is_feasible: bool = False
 
 
+@dataclass
+class SwapStarElement:
+    move_cost: float = 1e30
+    U: Optional["Node"] = None
+    best_position_U: Optional["Node"] = None
+    V: Optional["Node"] = None
+    best_position_V: Optional["Node"] = None
+
+
 class Individual:
     def __init__(self, solver):
         self.solver = solver
@@ -80,6 +92,7 @@ class Individual:
 
         self.successors = [0] * (self.inst.num_customers)
         self.predecessors = [0] * (self.inst.num_customers)
+        self.proximity_indivs = SortedList()
 
         # chromR represents the solution as a list of routes
         self.chromR = [[] for _ in range(self.inst.num_vehicles)]
@@ -89,6 +102,9 @@ class Individual:
 
         # Shuffle chromT
         random.shuffle(self.chromT)
+
+    def __lt__(self, other):
+        return True
 
     def evaluateCompleteCost(self):
         self.eval = Evaluation()
@@ -120,7 +136,8 @@ class Individual:
             self.eval.capacity_excess += max(0, load - self.inst.vehicle_capacity)
 
         self.eval.penalizedCost = (
-            self.eval.distance + self.eval.capacity_excess * self.solver.capacity_penalty
+            self.eval.distance
+            + self.eval.capacity_excess * self.solver.capacity_penalty
         )
         self.eval.is_feasible = self.eval.capacity_excess < 1e-3
 
@@ -128,17 +145,16 @@ class Individual:
 class ThreeBestInsert:
     def __init__(self):
         self.last_calculated = None
-        self.best_cost = [float("inf")] * 3
-        self.best_location = [None] * 3
+        self.best = [(float("inf"), None)] * 3
 
     def compare_and_add(self, cost_insert, place_insert):
         heap_item = (cost_insert, place_insert)
 
-        if len(self.heap) < 3:
+        if len(self.best) < 3:
             heapq.heappush(self.heap, heap_item)
         else:
             # If this cost is better than the current worst
-            if -self.heap[0][0] > cost_insert:
+            if -self.best[0][0] > cost_insert:
                 heapq.heappushpop(self.heap, heap_item)
 
     def reset(self):
