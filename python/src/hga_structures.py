@@ -6,6 +6,17 @@ from sortedcontainers import SortedList
 import random
 
 
+'''
+parameters for population and management
+
+penalty decrease and increase calibrates for exploration and exploitation
+
+population size represents the number of starting indviduals in subpopulations 
+or infeadisible or feasible
+
+generation size represents lambda, the number of offspring generated in each generation. Once
+you exceed population size + lambda, remove indviduals by lowest biased fitness
+'''
 @dataclass
 class AlgoParams:
     population_size: int = 25

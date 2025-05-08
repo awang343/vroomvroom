@@ -9,6 +9,8 @@ from collections import defaultdict
 
 class VRPInstance:
     def __init__(self, file_name):
+        
+        #self.num_customers includes depot
         self.num_customers = 0
         self.num_vehicles = 0
         self.vehicle_capacity = 0
