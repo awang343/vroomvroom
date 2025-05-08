@@ -39,6 +39,8 @@ class HGASolver:
 
     # {{{ solve
     def solve(self):
+        start_time = time.time()
+
         self.population.generatePopulation()
 
         num_iter = 0
@@ -74,5 +76,8 @@ class HGASolver:
             # DIVERSIFICATION, PENALTY MANAGEMENT
             if num_iter % self.params.num_iter_until_penalty == 0:
                 self.population.managePenalties()
+
+            if time.time() - start_time > self.params.max_time:
+                break
         return self.population.best_solution_overall.eval.distance, 0, self.population.best_solution_overall.chromR
     # }}}

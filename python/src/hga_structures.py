@@ -28,7 +28,8 @@ class AlgoParams:
     repair_prob: float = 0.5
     feasibility_target: float = 0.2
 
-    num_iter: int = 100
+    num_iter: int = 200
+    max_time: int = 290
     num_iter_until_penalty: int = 100
     penalty_decrease: float = 0.85
     penalty_increase: float = 1.2

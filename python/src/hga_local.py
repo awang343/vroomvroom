@@ -139,30 +139,30 @@ class LocalSearch:
                         continue  # 2-OPT*
 
             # (SWAP*) MOVES LIMITED TO ROUTE PAIRS WHOSE CIRCLE SECTORS OVERLAP
-            for rU in range(self.inst.num_vehicles):
-                self.route_u = self.routes[self.order_routes[rU]]
-                last_test_SWAP_route_u = self.route_u.last_tested_SWAP
-                self.route_u.last_tested_SWAP = self.num_moves
+            # for rU in range(self.inst.num_vehicles):
+            #     self.route_u = self.routes[self.order_routes[rU]]
+            #     last_test_SWAP_route_u = self.route_u.last_tested_SWAP
+            #     self.route_u.last_tested_SWAP = self.num_moves
 
-                for rV in range(self.inst.num_vehicles):
-                    self.route_v = self.routes[self.order_routes[rV]]
-                    if (
-                        self.route_u.num_customers > 0
-                        and self.route_v.num_customers > 0
-                        and self.route_u.idx < self.route_v.idx
-                    ):
-                        if (
-                            self.loop_id == 0
-                            or max(
-                                self.route_u.last_modified,
-                                self.route_v.last_modified,
-                            )
-                            > last_test_SWAP_route_u
-                        ):
-                            if CircleSector.overlap(
-                                self.route_u.sector, self.route_v.sector
-                            ):
-                                self.swapStar()
+            #     for rV in range(self.inst.num_vehicles):
+            #         self.route_v = self.routes[self.order_routes[rV]]
+            #         if (
+            #             self.route_u.num_customers > 0
+            #             and self.route_v.num_customers > 0
+            #             and self.route_u.idx < self.route_v.idx
+            #         ):
+            #             if (
+            #                 self.loop_id == 0
+            #                 or max(
+            #                     self.route_u.last_modified,
+            #                     self.route_v.last_modified,
+            #                 )
+            #                 > last_test_SWAP_route_u
+            #             ):
+            #                 if CircleSector.overlap(
+            #                     self.route_u.sector, self.route_v.sector
+            #                 ):
+            #                     self.swapStar()
 
             self.loop_id += 1
 
@@ -240,7 +240,7 @@ class LocalSearch:
         self.load_x = self.inst.customers[self.node_x.idx].demand
         self.load_v = self.inst.customers[self.node_v.idx].demand
         self.load_y = self.inst.customers[self.node_y.idx].demand
-        self.intraroute = self.route_u == self.route_v
+        self.intraroute = self.route_u.idx == self.route_v.idx
 
     # }}}
 
@@ -684,8 +684,8 @@ class LocalSearch:
             return False
 
         if (
-            self.node_u == self.node_y
-            or self.node_v == self.node_x
+            self.node_u.idx == self.node_y.idx
+            or self.node_v.idx == self.node_x.idx
             or self.node_x.is_depot
         ):
             return False
@@ -740,8 +740,8 @@ class LocalSearch:
             return False
 
         if (
-            self.node_u == self.node_y
-            or self.node_x == self.node_v
+            self.node_u.idx == self.node_y.idx
+            or self.node_x.idx == self.node_v.idx
             or self.node_x.is_depot
         ):
             return False
@@ -854,9 +854,9 @@ class LocalSearch:
             return False
 
         if (
-            self.node_u == self.node_v.prev
-            or self.node_x == self.node_v.prev
-            or self.node_u == self.node_y
+            self.node_u.idx == self.node_v.prev.idx
+            or self.node_x.idx == self.node_v.prev.idx
+            or self.node_u.idx == self.node_y.idx
             or self.node_x.is_depot
         ):
             return False
@@ -925,10 +925,10 @@ class LocalSearch:
         if (
             self.node_x.is_depot
             or self.node_y.is_depot
-            or self.node_y == self.node_u.prev
-            or self.node_u == self.node_y
-            or self.node_x == self.node_v
-            or self.node_v == self.node_x.next
+            or self.node_y.idx == self.node_u.prev.idx
+            or self.node_u.idx == self.node_y.idx
+            or self.node_x.idx == self.node_v.idx
+            or self.node_v.idx == self.node_x.next.idx
         ):
             return False
 
@@ -964,7 +964,7 @@ class LocalSearch:
         if cost > -1e-3:
             return False
 
-        if self.node_u.next == self.node_v:
+        if self.node_u.next.idx == self.node_v.idx:
             return False
 
         # self.printRoutes()
