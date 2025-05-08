@@ -139,30 +139,30 @@ class LocalSearch:
                         continue  # 2-OPT*
 
             # (SWAP*) MOVES LIMITED TO ROUTE PAIRS WHOSE CIRCLE SECTORS OVERLAP
-            # for rU in range(self.inst.num_vehicles):
-            #     self.route_u = self.routes[self.order_routes[rU]]
-            #     last_test_SWAP_route_u = self.route_u.last_tested_SWAP
-            #     self.route_u.last_tested_SWAP = self.num_moves
+            for rU in range(self.inst.num_vehicles):
+                self.route_u = self.routes[self.order_routes[rU]]
+                last_test_SWAP_route_u = self.route_u.last_tested_SWAP
+                self.route_u.last_tested_SWAP = self.num_moves
 
-            #     for rV in range(self.inst.num_vehicles):
-            #         self.route_v = self.routes[self.order_routes[rV]]
-            #         if (
-            #             self.route_u.num_customers > 0
-            #             and self.route_v.num_customers > 0
-            #             and self.route_u.idx < self.route_v.idx
-            #         ):
-            #             if (
-            #                 self.loop_id == 0
-            #                 or max(
-            #                     self.route_u.last_modified,
-            #                     self.route_v.last_modified,
-            #                 )
-            #                 > last_test_SWAP_route_u
-            #             ):
-            #                 if CircleSector.overlap(
-            #                     self.route_u.sector, self.route_v.sector
-            #                 ):
-            #                     self.swapStar()
+                for rV in range(self.inst.num_vehicles):
+                    self.route_v = self.routes[self.order_routes[rV]]
+                    if (
+                        self.route_u.num_customers > 0
+                        and self.route_v.num_customers > 0
+                        and self.route_u.idx < self.route_v.idx
+                    ):
+                        if (
+                            self.loop_id == 0
+                            or max(
+                                self.route_u.last_modified,
+                                self.route_v.last_modified,
+                            )
+                            > last_test_SWAP_route_u
+                        ):
+                            if CircleSector.overlap(
+                                self.route_u.sector, self.route_v.sector
+                            ):
+                                self.swapStar()
 
             self.loop_id += 1
 
