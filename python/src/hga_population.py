@@ -34,7 +34,6 @@ class Population:
     def generatePopulation(self):
         max_iter = 4 * self.params.population_size
         for i in range(max_iter):
-            print("Initial Population:", i)
             # Create random individual
             indiv = Individual(self.solver)
             # Split into routes
@@ -212,24 +211,12 @@ class Population:
         return indiv1 if indiv1.biasedFitness < indiv2.biasedFitness else indiv2
 
     def restart(self):
-        # if self.params.verbose:
-        #     print("----- RESET: CREATING A NEW POPULATION -----")
-        # for indiv in self.feasible_population:
-        #     # In C++, we delete the pointer. Here, there's no explicit memory free needed.
-        #     pass
-        # for indiv in self.infeasible_population:
-        #     pass
-
         self.feasible_population.clear()
         self.infeasible_population.clear()
-        self.bestSolutionRestart = Individual(self.inst)
-        # self.bestSolutionRestart.eval['penalizedCost'] = 1e30
+        self.best_solution_restart = Individual(self.solver)
         self.generatePopulation()
 
     def managePenalties(self):
-        """
-        Matches Population::managePenalties logic in the code snippet.
-        """
         fraction_feasible = sum(self.recent_feasibility) / float(
             len(self.recent_feasibility)
         )

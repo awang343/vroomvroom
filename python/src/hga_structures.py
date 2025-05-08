@@ -8,8 +8,8 @@ import random
 
 @dataclass
 class AlgoParams:
-    population_size: int = 1
-    generation_size: int = 5
+    population_size: int = 25
+    generation_size: int = 40
     neighborhood_size: int = 20
     num_elite: int = 4
     num_close: int = 5
@@ -20,8 +20,7 @@ class AlgoParams:
     num_iter_until_penalty: int = 100
     penalty_decrease: float = 0.85
     penalty_increase: float = 1.2
-    num_iter: int = 20000
-    num_iter_traces: int = 500
+    num_iter: int = 100
 
 
 @dataclass
@@ -135,7 +134,7 @@ class Individual:
             self.eval.num_routes += 1  # Only count nonempty routes
             self.eval.capacity_excess += max(0, load - self.inst.vehicle_capacity)
 
-        self.eval.penalizedCost = (
+        self.eval.penalized_cost = (
             self.eval.distance
             + self.eval.capacity_excess * self.solver.capacity_penalty
         )

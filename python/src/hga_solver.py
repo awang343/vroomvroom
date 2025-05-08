@@ -1,15 +1,14 @@
 from hga_local import LocalSearch
 from hga_split import Split
+from hga_population import Population
+from hga_crossover import HGACrossover
+from hga_structures import Individual, AlgoParams
 
 import numpy as np
 import copy
 import random
 import heapq
-from hga_population import Population
-from hga_crossover import HGACrossover
 import time
-
-from hga_structures import Individual, AlgoParams
 
 # random.seed(10)
 # np.random.seed(10)
@@ -35,7 +34,6 @@ class HGASolver:
         self.ox = HGACrossover(self)
 
         self.population = Population(self)
-        self.offspring = Individual(self)
 
     # }}}
 
@@ -44,46 +42,37 @@ class HGASolver:
         self.population.generatePopulation()
 
         num_iter = 0
-        num_iter_no_improvment = 1
+        num_iter_no_improvement = 1
 
-        # if self.params.verbose:
-        #     print("----- STARTING GENETIC ALGORITHM")
-
-        # While we haven't exceeded the iteration limit and we are within the time limit
-        start_time = time.time()
-        while num_iter_no_improvment <= self.params.num_iter:
+        while num_iter_no_improvement <= self.params.num_iter:
 
             # SELECTION AND CROSSOVER
             parent1 = self.population.getBinaryTournament()
             parent2 = self.population.getBinaryTournament()
-            self.ox.crossover_ox(self.offspring, parent1, parent2)
+            offspring = self.ox.crossover_ox(parent1, parent2)
 
             # LOCAL SEARCH
-            self.local_search.run(self.offspring, self.capacity_penalty)
-            is_new_best = self.population.addIndividual(self.offspring, True)
+            self.local_search.run(offspring, self.capacity_penalty)
+            is_new_best = self.population.addIndividual(offspring, True)
 
             # Attempt to repair half the infeasible solutions
-            if not self.offspring.eval.is_feasible and random.random() < 0.5:
-                self.local_search.run(self.offspring, self.capacity_penalty * 10)
-                if self.offspring.eval.is_feasible:
+            if not offspring.eval.is_feasible and random.random() < 0.5:
+                self.local_search.run(offspring, self.capacity_penalty * 10)
+                if offspring.eval.is_feasible:
                     # We do not override isNewBest if the second add is new best
                     is_new_best = (
-                        self.population.addIndividual(self.offspring, False)
+                        self.population.addIndividual(offspring, False)
                         or is_new_best
                     )
 
             # TRACKING ITERATIONS SINCE LAST IMPROVEMENT
             if is_new_best:
-                num_iter_no_improvment = 1
+                num_iter_no_improvement = 1
             else:
-                num_iter_no_improvment += 1
+                num_iter_no_improvement += 1
 
-            # DIVERSIFICATION, PENALTY MANAGEMENT AND TRACES
-            if num_iter % self.params.num_iter == 0:
+            # DIVERSIFICATION, PENALTY MANAGEMENT
+            if num_iter % self.params.num_iter_until_penalty == 0:
                 self.population.managePenalties()
-
-            # RESET THE ALGORITHM/POPULATION IF NO IMPROVEMENT
-            if num_iter_no_improvment == self.params.num_iter:
-                self.population.restart()
-                num_iter_no_improvment = 1
+        return self.population.best_solution_overall.eval.distance, 0, self.population.best_solution_overall.chromR
     # }}}

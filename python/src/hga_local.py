@@ -69,7 +69,7 @@ class LocalSearch:
                 # Force at least 2 loops to make sure all moves are checked
                 self.search_completed = True
 
-            # CLASSICAL ROUTE IMPROVEMENT (RI) MOVES IN NEIGHBORHOOD
+            # CLASSICAL RI MOVES IN NEIGHBORHOOD
             for pos_u in range(self.inst.num_customers - 1):
                 self.node_u = self.customers[self.order_nodes[pos_u]]
                 last_test_RI_node_u = self.node_u.last_tested_RI
@@ -125,7 +125,6 @@ class LocalSearch:
                                 continue  # 2-OPT*
                             if not self.intraroute and self.move9():
                                 continue  # 2-OPT*
-
                 # MOVES INVOLVING AN EMPTY ROUTE
                 if self.loop_id > 0 and self.empty_routes:
                     self.node_v = self.routes[self.empty_routes.pop()].depot
@@ -140,30 +139,30 @@ class LocalSearch:
                         continue  # 2-OPT*
 
             # (SWAP*) MOVES LIMITED TO ROUTE PAIRS WHOSE CIRCLE SECTORS OVERLAP
-            for rU in range(self.inst.num_vehicles):
-                self.route_u = self.routes[self.order_routes[rU]]
-                last_test_SWAP_route_u = self.route_u.last_tested_SWAP
-                self.route_u.last_tested_SWAP = self.num_moves
+            # for rU in range(self.inst.num_vehicles):
+            #     self.route_u = self.routes[self.order_routes[rU]]
+            #     last_test_SWAP_route_u = self.route_u.last_tested_SWAP
+            #     self.route_u.last_tested_SWAP = self.num_moves
 
-                for rV in range(self.inst.num_vehicles):
-                    self.route_v = self.routes[self.order_routes[rV]]
-                    if (
-                        self.route_u.num_customers > 0
-                        and self.route_v.num_customers > 0
-                        and self.route_u.idx < self.route_v.idx
-                    ):
-                        if (
-                            self.loop_id == 0
-                            or max(
-                                self.route_u.last_modified,
-                                self.route_v.last_modified,
-                            )
-                            > last_test_SWAP_route_u
-                        ):
-                            if CircleSector.overlap(
-                                self.route_u.sector, self.route_v.sector
-                            ):
-                                self.swapStar()
+            #     for rV in range(self.inst.num_vehicles):
+            #         self.route_v = self.routes[self.order_routes[rV]]
+            #         if (
+            #             self.route_u.num_customers > 0
+            #             and self.route_v.num_customers > 0
+            #             and self.route_u.idx < self.route_v.idx
+            #         ):
+            #             if (
+            #                 self.loop_id == 0
+            #                 or max(
+            #                     self.route_u.last_modified,
+            #                     self.route_v.last_modified,
+            #                 )
+            #                 > last_test_SWAP_route_u
+            #             ):
+            #                 if CircleSector.overlap(
+            #                     self.route_u.sector, self.route_v.sector
+            #                 ):
+            #                     self.swapStar()
 
             self.loop_id += 1
 
@@ -171,6 +170,15 @@ class LocalSearch:
         self.exportIndividual(indiv)
 
     # }}}
+
+    def printRoutes(self):
+        print("ROUTES:")
+        for route in self.routes:
+            here = route.depot.next
+            while not here.is_depot:
+                print(here.idx, end=" ")
+                here = here.next
+            print()
 
     # {{{ loadIndividual
     def loadIndividual(self, indiv):
@@ -610,7 +618,7 @@ class LocalSearch:
         )
 
         if not self.intraroute:
-            # Early move pruning to save CPU time. Guarantees that this move cannot improve without checking additional load constraints
+            # Early move pruning
             if costSuppU + costSuppV >= self.route_u.penalty + self.route_v.penalty:
                 return False
 
@@ -638,6 +646,7 @@ class LocalSearch:
         if not self.intraroute:
             self.updateRouteData(self.route_v)
 
+        # print("M1 Applied")
         return True
 
     # }}}
@@ -691,6 +700,7 @@ class LocalSearch:
         if not self.intraroute:
             self.updateRouteData(self.route_v)
 
+        # print("M2 Applied")
         return True
 
     # }}}
@@ -746,6 +756,7 @@ class LocalSearch:
         if not self.intraroute:
             self.updateRouteData(self.route_v)
 
+        # print("M3 Applied")
         return True
 
     # }}}
@@ -799,6 +810,7 @@ class LocalSearch:
         if not self.intraroute:
             self.updateRouteData(self.route_v)
 
+        # print("M4 Applied")
         return True
 
     # }}}
@@ -859,6 +871,7 @@ class LocalSearch:
         if not self.intraroute:
             self.updateRouteData(self.route_v)
 
+        # print("M5 Applied")
         return True
 
     # }}}
@@ -929,6 +942,7 @@ class LocalSearch:
         if not self.intraroute:
             self.updateRouteData(self.route_v)
 
+        # print("M6 Applied")
         return True
 
     # }}}
@@ -953,6 +967,8 @@ class LocalSearch:
         if self.node_u.next == self.node_v:
             return False
 
+        # self.printRoutes()
+
         nodeNum = self.node_x.next
         self.node_x.prev = nodeNum
         self.node_x.next = self.node_y
@@ -971,6 +987,8 @@ class LocalSearch:
         self.num_moves += 1  # Increment move counter before updating route data
         self.search_completed = False
         self.updateRouteData(self.route_u)
+
+        # print("M7 Applied")
         return True
 
     # }}}
@@ -989,8 +1007,8 @@ class LocalSearch:
             - self.route_v.penalty
         )
 
-        # Early move pruning to save CPU time. Guarantees that this move cannot improve without checking load constraints
-        if cost >= 0:
+        # Guarantee this move cannot improve
+        if cost > -1e-3:
             return False
 
         cost += self.calc_penalty(
@@ -1057,6 +1075,8 @@ class LocalSearch:
         self.search_completed = False
         self.updateRouteData(self.route_u)
         self.updateRouteData(self.route_v)
+
+        # print("M8 Applied")
         return True
 
     # }}}
@@ -1124,6 +1144,8 @@ class LocalSearch:
         self.search_completed = False
         self.updateRouteData(self.route_u)
         self.updateRouteData(self.route_v)
+
+        # print("M9 Applied")
         return True
 
     # }}}
