@@ -31,6 +31,7 @@ class Population:
             maxlen=self.params.num_iter_until_penalty,
         )
 
+    #initial creation of population at the start of run, and also when restarts happen
     def generatePopulation(self):
         max_iter = 4 * self.params.population_size
         for i in range(max_iter):
@@ -48,11 +49,11 @@ class Population:
                 if indiv.eval.is_feasible:
                     self.addIndividual(indiv, update_feasible=False)
 
-    def addIndividual(self, indiv: Individual, update_feasible: bool) -> bool:
-        """
+    """
         Inserts an individual into the appropriate subpop,
         triggers a survivor selection if needed, and updates best solutions.
-        """
+    """
+    def addIndividual(self, indiv: Individual, update_feasible: bool) -> bool:
         # Update recent feasibility tracker
         if update_feasible:
             self.recent_feasibility.append(indiv.eval.capacity_excess < 1e-3)
@@ -102,11 +103,11 @@ class Population:
                 return True
         return False
 
-    def removeWorstBiasedFitness(self, pop: List[Individual]):
-        """
-        Replicates removeWorstBiasedFitness from Population.cpp.
+    """
+        Handles the survivor selection process (removes lambda individuals).
         Updates biased fitnesses, then removes the worst. Also accounts for clones.
-        """
+    """
+    def removeWorstBiasedFitness(self, pop: List[Individual]):
         self.updateBiasedFitnesses(pop)
         if len(pop) <= 1:
             raise Exception("Eliminating the best individual: should not occur in HGS")
@@ -139,9 +140,11 @@ class Population:
                 if item[1] == removed:
                     del indiv2.proximity_indivs[i]
                     break
-
+    
+    """
+    Calculates the broken pairs distance between two individuals.
+    """
     def brokenPairsDistance(self, indiv1: Individual, indiv2: Individual) -> float:
-        """Calculates the broken pairs distance between two individuals."""
         differences = 0
         for j in range(1, self.inst.num_customers):
             if (
@@ -157,16 +160,18 @@ class Population:
                 differences += 1
         return differences / self.inst.num_customers
 
+    """
+    Calculates the average broken pairs distance to the closest neighbors.
+    """
     def averageBrokenPairsDistanceClosest(
         self, indiv: Individual, num_closest: int
     ) -> float:
-        """Calculates the average broken pairs distance to the closest neighbors."""
         max_size = min(num_closest, len(indiv.proximity_indivs))
         result = sum(x[0] for x in indiv.proximity_indivs[:max_size])
         return result / max_size if max_size > 0 else 0.0
 
+    """Updates the biased fitness values for a population."""
     def updateBiasedFitnesses(self, pop: List[Individual]):
-        """Updates the biased fitness values for a population."""
         # Rank individuals based on diversity contribution (decreasing order of distance)
         ranking = []
         for i, indiv in enumerate(pop):
@@ -189,9 +194,11 @@ class Population:
                     pop[idx].biasedFitness = (
                         fitRank + (1.0 - self.params.num_elite / len(pop)) * divRank
                     )
-
+    """
+    Selects two individuals and returns the one with better biased fitness.
+    Parent selection
+    """
     def getBinaryTournament(self) -> Individual:
-        """Selects two individuals and returns the one with better biased fitness."""
         # Combine feasible and infeasible subpopulations
         combined_pop = self.feasible_population + self.infeasible_population
         if len(combined_pop) < 2:
@@ -210,6 +217,7 @@ class Population:
         # Return the individual with better (lower) biased fitness
         return indiv1 if indiv1.biasedFitness < indiv2.biasedFitness else indiv2
 
+    #If the number of iterations without improvement exceeds the threshold, restart the population
     def restart(self):
         self.feasible_population.clear()
         self.infeasible_population.clear()
