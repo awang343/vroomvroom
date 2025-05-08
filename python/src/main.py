@@ -36,7 +36,7 @@ def main():
 
     solution = f'{optimal} {" ".join([" ".join([str(r) for r in route]) for route in routes])}'
     print(
-        f'{{"Instance": "{filename}","Time": {timer.getElapsed():.2f}, "Result": {obj_value}, "Solution": "{solution}"}}'
+        f'{{"Instance": "{filename}","Time": {timer.getElapsed():.2f}, "Result": {round(obj_value, 2)}, "Solution": "{solution}"}}'
     )
 
 
